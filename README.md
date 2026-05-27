@@ -1,3 +1,274 @@
+
+# Household AI Replenishment Assistant MVP
+
+A practical MVP for reducing household mental load around everyday supplies. When something is running low, a household member taps an NFC tag, uses a voice shortcut, or opens a lightweight web page. The backend records the event in Google Sheets, reviews purchase history and preferences, and can send a Chinese daily summary through Gmail. The system recommends and tracks. It does not auto-purchase anything.
+
+## MVP Workflow
+
+1. A user taps an NFC tag or uses a voice/web entry point to record low stock.
+2. The FastAPI backend writes the event to the `低库存记录` sheet.
+3. A daily agent reads `库存清单`, `低库存记录`, and `购买历史`.
+4. The system generates Amazon, Costco, Walmart, and Target search links.
+5. OpenAI can produce Chinese recommendation notes based on brand preferences, purchase history, and urgency.
+6. Recommendations are written to `补货推荐`.
+7. The system can read Gmail order and receipt emails, extract purchased items and shipping-address signals, and write purchase/order analysis to Google Sheets.
+8. Gmail can send a Chinese summary email when there is something meaningful to report.
+9. The user manually reviews links and decides whether to buy. Checkout always requires human approval.
+
+If there are no new low-stock recommendations and no pending recommendation items, the system does not send an empty daily email.
+
+## Google Sheets Structure
+
+The project uses Chinese sheet tabs as the source of truth:
+
+- `库存清单`
+- `低库存记录`
+- `购买历史`
+- `订单分析`
+- `补货推荐`
+- `发送记录`
+
+Product names, brands, retailers, and specs may stay in English, such as `Toilet Paper`, `Charmin`, and `Costco`. User-facing statuses, field names, urgency, and recommendations are primarily Chinese.
+
+Common recommendation statuses:
+
+- `待确认`
+- `已下单`
+- `已跳过`
+- `需要更好选项`
+
+Urgency levels:
+
+- `低`
+- `中`
+- `高`
+- `紧急`
+
+## Local Setup
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Then edit `.env`:
+
+```bash
+GOOGLE_SHEET_ID="your Google Sheet ID"
+GOOGLE_CREDENTIALS_FILE="credentials/google_oauth_client.json"
+GOOGLE_TOKEN_FILE="credentials/google_token.json"
+GMAIL_SENDER_EMAIL="your Gmail address"
+DAILY_SUMMARY_TO_EMAIL="summary recipient email"
+DEFAULT_SHIPPING_ADDRESS="YOUR_DEFAULT_SHIPPING_ADDRESS"
+OPENAI_API_KEY="your OpenAI API key"
+```
+
+Do not commit `.env`, OAuth credential files, token files, or rendered environment-value files.
+
+## Google API Setup
+
+1. Create a Google Cloud project.
+2. Enable Google Sheets API and Gmail API.
+3. Create an OAuth Desktop Client.
+4. Download the OAuth client JSON to:
+
+```text
+credentials/google_oauth_client.json
+```
+
+The first local run will open a browser for authorization and create:
+
+```text
+credentials/google_token.json
+```
+
+## Initialize Google Sheets
+
+Create a blank Google Sheet, put its ID in `.env`, then run:
+
+```bash
+python scripts/setup_google_sheet.py
+```
+
+The script creates Chinese tabs, writes headers, and adds sample inventory items.
+
+## Run The API
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Open:
+
+```text
+http://localhost:8000/docs
+```
+
+## NFC Flow
+
+Write an NFC tag with a URL like:
+
+```text
+http://localhost:8000/nfc/toilet_paper
+```
+
+For cloud deployment, replace the domain with your deployed service URL:
+
+```text
+https://your-service.onrender.com/nfc/toilet_paper
+```
+
+After scanning, the phone opens a confirmation page. The user can choose:
+
+- `低库存`
+- `已经没有库存`
+- `取消`
+
+The event is written to Google Sheets only after confirmation.
+
+## Key Endpoints
+
+Create a low-stock event:
+
+```http
+POST /events/low-stock
+```
+
+```json
+{
+  "item_id": "toilet_paper",
+  "source": "NFC",
+  "urgency": "中",
+  "note": "only a few rolls left"
+}
+```
+
+Run the full daily agent manually:
+
+```http
+POST /agent/daily-run
+```
+
+Run the daily agent only if the daily-send guard says it is due:
+
+```http
+POST /agent/daily-run-if-due
+```
+
+Run Gmail order analysis manually:
+
+```http
+POST /agent/order-analysis
+```
+
+Upload a receipt:
+
+```http
+POST /receipts/upload
+```
+
+Form field name:
+
+```text
+file
+```
+
+Text receipts can be parsed directly. Image receipts can be read with an OpenAI vision-capable model when an API key is configured. PDF support is minimal in the MVP and can be expanded with OCR later.
+
+## Gmail Order And Receipt Analysis
+
+The Gmail order analyzer focuses on order-confirmation-like emails such as `order received`, `order confirmation`, `your order`, and `ordered`. It filters out shipped, delivered, promotion, deal, and sale emails where possible.
+
+Extracted purchases are written to:
+
+- `购买历史`
+- `订单分析`
+
+The system can also classify shipping-address signals into default-address, other-address, or unknown. The default address must be configured privately as an environment variable.
+
+## HSA/FSA Candidate Tracking
+
+The system can flag possible HSA/FSA-related purchases using keywords such as `anti-itch`, `hydrocortisone`, `bandage`, `sunscreen`, and `ibuprofen`.
+
+Matching items are written to a separate Google Sheet named `HSA 候选记录` by default, with a tab named `HSA候选`. These are only candidates and still require human confirmation before reimbursement.
+
+If a receipt upload contains an HSA/FSA candidate, the original receipt file can be uploaded to the same Google Drive folder as the HSA sheet.
+
+## Render Deployment
+
+This repository includes `render.yaml` for Render Blueprint deployment. It also includes `.python-version`, and `render.yaml` sets `PYTHON_VERSION=3.12.2` to avoid dependency issues with newer Python defaults.
+
+Recommended steps:
+
+1. Push the project to GitHub.
+2. Create a Render Blueprint from this repository.
+3. Render reads `render.yaml` and creates the web service and cron configuration.
+4. Add private environment variables in Render:
+
+```text
+GOOGLE_SHEET_ID
+GOOGLE_OAUTH_CLIENT_JSON
+GOOGLE_TOKEN_JSON
+GMAIL_SENDER_EMAIL
+DAILY_SUMMARY_TO_EMAIL
+DEFAULT_SHIPPING_ADDRESS
+OPENAI_API_KEY
+```
+
+Generate OAuth environment values locally:
+
+```bash
+python scripts/print_render_env.py
+```
+
+Copy only the value after `=` into Render. Do not commit those values to GitHub.
+
+## Nightly Gmail Sync
+
+`render.yaml` includes a nightly cron job:
+
+```text
+household-order-analysis-nightly
+```
+
+It runs around 9 PM America/Los_Angeles during PDT:
+
+```cron
+0 4 * * *
+```
+
+Command:
+
+```bash
+python scripts/run_order_analysis.py
+```
+
+This job reads Gmail order/receipt emails and updates Google Sheets. It does not auto-purchase and does not send empty emails.
+
+## Safety Boundaries
+
+- No automatic purchasing.
+- No payment information storage.
+- Human approval is required before checkout.
+- NFC is only a lightweight trigger.
+- Google Sheets remains the source-of-truth database.
+- Retailer links are search links where possible, avoiding brittle or non-compliant scraping.
+
+## Privacy Notes
+
+Keep these out of public repositories:
+
+- `.env`
+- `credentials/`
+- `google_token.json`
+- `render_env_values.txt`
+- OAuth client secrets and refresh tokens
+- API keys
+- Real home addresses
+- Personal email addresses, unless intentionally disclosed
+--------
 # 家庭 AI 补货助手 MVP
 
 这个项目是一个实用优先的家庭补货助手 MVP：家里有人发现日用品快用完时，用 NFC、语音快捷指令或网页入口记录一下；系统每天扫描 Google Sheet，生成中文补货推荐，并通过 Gmail 发每日摘要。系统只推荐，不会自动购买。
@@ -295,272 +566,3 @@ DEFAULT_SHIPPING_ADDRESS="YOUR_DEFAULT_SHIPPING_ADDRESS"
 
 ---
 
-# Household AI Replenishment Assistant MVP
-
-A practical MVP for reducing household mental load around everyday supplies. When something is running low, a household member taps an NFC tag, uses a voice shortcut, or opens a lightweight web page. The backend records the event in Google Sheets, reviews purchase history and preferences, and can send a Chinese daily summary through Gmail. The system recommends and tracks. It does not auto-purchase anything.
-
-## MVP Workflow
-
-1. A user taps an NFC tag or uses a voice/web entry point to record low stock.
-2. The FastAPI backend writes the event to the `低库存记录` sheet.
-3. A daily agent reads `库存清单`, `低库存记录`, and `购买历史`.
-4. The system generates Amazon, Costco, Walmart, and Target search links.
-5. OpenAI can produce Chinese recommendation notes based on brand preferences, purchase history, and urgency.
-6. Recommendations are written to `补货推荐`.
-7. The system can read Gmail order and receipt emails, extract purchased items and shipping-address signals, and write purchase/order analysis to Google Sheets.
-8. Gmail can send a Chinese summary email when there is something meaningful to report.
-9. The user manually reviews links and decides whether to buy. Checkout always requires human approval.
-
-If there are no new low-stock recommendations and no pending recommendation items, the system does not send an empty daily email.
-
-## Google Sheets Structure
-
-The project uses Chinese sheet tabs as the source of truth:
-
-- `库存清单`
-- `低库存记录`
-- `购买历史`
-- `订单分析`
-- `补货推荐`
-- `发送记录`
-
-Product names, brands, retailers, and specs may stay in English, such as `Toilet Paper`, `Charmin`, and `Costco`. User-facing statuses, field names, urgency, and recommendations are primarily Chinese.
-
-Common recommendation statuses:
-
-- `待确认`
-- `已下单`
-- `已跳过`
-- `需要更好选项`
-
-Urgency levels:
-
-- `低`
-- `中`
-- `高`
-- `紧急`
-
-## Local Setup
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-```
-
-Then edit `.env`:
-
-```bash
-GOOGLE_SHEET_ID="your Google Sheet ID"
-GOOGLE_CREDENTIALS_FILE="credentials/google_oauth_client.json"
-GOOGLE_TOKEN_FILE="credentials/google_token.json"
-GMAIL_SENDER_EMAIL="your Gmail address"
-DAILY_SUMMARY_TO_EMAIL="summary recipient email"
-DEFAULT_SHIPPING_ADDRESS="YOUR_DEFAULT_SHIPPING_ADDRESS"
-OPENAI_API_KEY="your OpenAI API key"
-```
-
-Do not commit `.env`, OAuth credential files, token files, or rendered environment-value files.
-
-## Google API Setup
-
-1. Create a Google Cloud project.
-2. Enable Google Sheets API and Gmail API.
-3. Create an OAuth Desktop Client.
-4. Download the OAuth client JSON to:
-
-```text
-credentials/google_oauth_client.json
-```
-
-The first local run will open a browser for authorization and create:
-
-```text
-credentials/google_token.json
-```
-
-## Initialize Google Sheets
-
-Create a blank Google Sheet, put its ID in `.env`, then run:
-
-```bash
-python scripts/setup_google_sheet.py
-```
-
-The script creates Chinese tabs, writes headers, and adds sample inventory items.
-
-## Run The API
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Open:
-
-```text
-http://localhost:8000/docs
-```
-
-## NFC Flow
-
-Write an NFC tag with a URL like:
-
-```text
-http://localhost:8000/nfc/toilet_paper
-```
-
-For cloud deployment, replace the domain with your deployed service URL:
-
-```text
-https://your-service.onrender.com/nfc/toilet_paper
-```
-
-After scanning, the phone opens a confirmation page. The user can choose:
-
-- `低库存`
-- `已经没有库存`
-- `取消`
-
-The event is written to Google Sheets only after confirmation.
-
-## Key Endpoints
-
-Create a low-stock event:
-
-```http
-POST /events/low-stock
-```
-
-```json
-{
-  "item_id": "toilet_paper",
-  "source": "NFC",
-  "urgency": "中",
-  "note": "only a few rolls left"
-}
-```
-
-Run the full daily agent manually:
-
-```http
-POST /agent/daily-run
-```
-
-Run the daily agent only if the daily-send guard says it is due:
-
-```http
-POST /agent/daily-run-if-due
-```
-
-Run Gmail order analysis manually:
-
-```http
-POST /agent/order-analysis
-```
-
-Upload a receipt:
-
-```http
-POST /receipts/upload
-```
-
-Form field name:
-
-```text
-file
-```
-
-Text receipts can be parsed directly. Image receipts can be read with an OpenAI vision-capable model when an API key is configured. PDF support is minimal in the MVP and can be expanded with OCR later.
-
-## Gmail Order And Receipt Analysis
-
-The Gmail order analyzer focuses on order-confirmation-like emails such as `order received`, `order confirmation`, `your order`, and `ordered`. It filters out shipped, delivered, promotion, deal, and sale emails where possible.
-
-Extracted purchases are written to:
-
-- `购买历史`
-- `订单分析`
-
-The system can also classify shipping-address signals into default-address, other-address, or unknown. The default address must be configured privately as an environment variable.
-
-## HSA/FSA Candidate Tracking
-
-The system can flag possible HSA/FSA-related purchases using keywords such as `anti-itch`, `hydrocortisone`, `bandage`, `sunscreen`, and `ibuprofen`.
-
-Matching items are written to a separate Google Sheet named `HSA 候选记录` by default, with a tab named `HSA候选`. These are only candidates and still require human confirmation before reimbursement.
-
-If a receipt upload contains an HSA/FSA candidate, the original receipt file can be uploaded to the same Google Drive folder as the HSA sheet.
-
-## Render Deployment
-
-This repository includes `render.yaml` for Render Blueprint deployment. It also includes `.python-version`, and `render.yaml` sets `PYTHON_VERSION=3.12.2` to avoid dependency issues with newer Python defaults.
-
-Recommended steps:
-
-1. Push the project to GitHub.
-2. Create a Render Blueprint from this repository.
-3. Render reads `render.yaml` and creates the web service and cron configuration.
-4. Add private environment variables in Render:
-
-```text
-GOOGLE_SHEET_ID
-GOOGLE_OAUTH_CLIENT_JSON
-GOOGLE_TOKEN_JSON
-GMAIL_SENDER_EMAIL
-DAILY_SUMMARY_TO_EMAIL
-DEFAULT_SHIPPING_ADDRESS
-OPENAI_API_KEY
-```
-
-Generate OAuth environment values locally:
-
-```bash
-python scripts/print_render_env.py
-```
-
-Copy only the value after `=` into Render. Do not commit those values to GitHub.
-
-## Nightly Gmail Sync
-
-`render.yaml` includes a nightly cron job:
-
-```text
-household-order-analysis-nightly
-```
-
-It runs around 9 PM America/Los_Angeles during PDT:
-
-```cron
-0 4 * * *
-```
-
-Command:
-
-```bash
-python scripts/run_order_analysis.py
-```
-
-This job reads Gmail order/receipt emails and updates Google Sheets. It does not auto-purchase and does not send empty emails.
-
-## Safety Boundaries
-
-- No automatic purchasing.
-- No payment information storage.
-- Human approval is required before checkout.
-- NFC is only a lightweight trigger.
-- Google Sheets remains the source-of-truth database.
-- Retailer links are search links where possible, avoiding brittle or non-compliant scraping.
-
-## Privacy Notes
-
-Keep these out of public repositories:
-
-- `.env`
-- `credentials/`
-- `google_token.json`
-- `render_env_values.txt`
-- OAuth client secrets and refresh tokens
-- API keys
-- Real home addresses
-- Personal email addresses, unless intentionally disclosed
