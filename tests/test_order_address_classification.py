@@ -1,7 +1,7 @@
 from app.agents.order_analysis_agent import _normalize_address, extract_amazon_delivery_location
 
 
-def address_category(address: str, default_address: str = "102 Montelena Ct") -> str:
+def address_category(address: str, default_address: str = "123 Example St") -> str:
     if not address:
         return "未识别"
     return (
@@ -12,7 +12,7 @@ def address_category(address: str, default_address: str = "102 Montelena Ct") ->
 
 
 def test_default_shipping_address_is_classified():
-    assert address_category("Ship to: 102 Montelena Ct, Mountain View, CA") == "默认地址"
+    assert address_category("Ship to: 123 Example St, Example City, CA") == "默认地址"
 
 
 def test_other_shipping_address_is_classified():

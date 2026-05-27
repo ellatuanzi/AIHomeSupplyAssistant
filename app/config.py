@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
     gmail_sender_email: str = ""
     daily_summary_to_email: str = ""
-    default_shipping_address: str = "102 Montelena Ct"
+    default_shipping_address: str = ""
     order_email_query: str = (
         '(subject:"order received" OR subject:"order confirmation" OR '
         'subject:"your order" OR subject:ordered) '
