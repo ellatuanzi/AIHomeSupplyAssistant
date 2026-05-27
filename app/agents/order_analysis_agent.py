@@ -4,6 +4,8 @@ import json
 import re
 from typing import Any
 
+from openai import OpenAIError
+
 from app.models.inventory import InventoryItem
 from app.services.gmail import GmailService
 from app.services.google_sheets import GoogleSheetsService
@@ -120,18 +122,21 @@ class OrderAnalysisAgent:
                 }
             ],
         }
-        response = client.chat.completions.create(
-            model=self.recommender.model,
-            messages=[
-                {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-            ],
-            temperature=0.1,
-        )
-        parsed = json.loads(response.choices[0].message.content or "[]")
-        if isinstance(parsed, dict):
-            return [parsed] if parsed.get("is_order", True) else []
-        return [item for item in parsed if item]
+        try:
+            response = client.chat.completions.create(
+                model=self.recommender.model,
+                messages=[
+                    {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+                temperature=0.1,
+            )
+            parsed = json.loads(response.choices[0].message.content or "[]")
+            if isinstance(parsed, dict):
+                return [parsed] if parsed.get("is_order", True) else []
+            return [item for item in parsed if item]
+        except (OpenAIError, json.JSONDecodeError):
+            return self._heuristic_extract_orders(email, inventory)
 
     def _analyze_order(
         self,
@@ -170,15 +175,18 @@ class OrderAnalysisAgent:
                 "summary": "中文一句话",
             },
         }
-        response = client.chat.completions.create(
-            model=self.recommender.model,
-            messages=[
-                {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-            ],
-            temperature=0.2,
-        )
-        return json.loads(response.choices[0].message.content or "{}")
+        try:
+            response = client.chat.completions.create(
+                model=self.recommender.model,
+                messages=[
+                    {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+                temperature=0.2,
+            )
+            return json.loads(response.choices[0].message.content or "{}")
+        except (OpenAIError, json.JSONDecodeError):
+            return self._heuristic_analysis(order, item)
 
     def _match_inventory_item(
         self, order: dict[str, Any], inventory: list[InventoryItem]
