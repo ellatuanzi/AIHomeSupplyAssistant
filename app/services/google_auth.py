@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -52,6 +53,11 @@ def get_google_credentials(scopes: list[str] | None = None) -> Credentials:
             creds = None
 
     if not creds or not creds.valid:
+        if settings.google_oauth_client_json and _running_on_render():
+            raise RuntimeError(
+                "Render 环境缺少有效的 GOOGLE_TOKEN_JSON，无法在云端打开本地授权页面。"
+                "请把本地生成的 Google token JSON 填到 Cron Job 的环境变量里。"
+            )
         if settings.google_oauth_client_json:
             flow = InstalledAppFlow.from_client_config(
                 _json_from_env(settings.google_oauth_client_json), requested_scopes
@@ -69,6 +75,10 @@ def get_google_credentials(scopes: list[str] | None = None) -> Credentials:
         token_path.write_text(creds.to_json(), encoding="utf-8")
 
     return creds
+
+
+def _running_on_render() -> bool:
+    return bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
 
 
 def _json_from_env(value: str) -> dict:
