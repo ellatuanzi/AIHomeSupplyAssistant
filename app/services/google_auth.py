@@ -85,7 +85,9 @@ def _json_from_env(value: str) -> dict:
     import base64
     import json
 
-    value = value.strip()
+    value = "".join(value.strip().split())
+    if "{" in value and "}" in value:
+        value = value[value.find("{") : value.rfind("}") + 1]
     try:
         parsed = json.loads(value)
         if isinstance(parsed, str):
