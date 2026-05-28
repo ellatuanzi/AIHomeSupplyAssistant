@@ -21,7 +21,11 @@ services:
       - key: HSA_KEYWORDS
         value: hsa,fsa,hydrocortisone,anti-itch,first aid,bandage,medicine,medical,sunscreen,spf,thermometer,covid,allergy,ibuprofen,acetaminophen,pain relief,antacid,contact lens,saline,eczema
       - key: MAX_ORDER_EMAILS
-        value: 10
+        value: 5
+      - key: ORDER_ANALYSIS_USE_OPENAI
+        value: false
+      - key: ORDER_ANALYSIS_TIMEOUT_SECONDS
+        value: 600
       - key: DEFAULT_SHIPPING_ADDRESS
         sync: false
       - key: ORDER_EMAIL_QUERY
@@ -63,7 +67,11 @@ services:
       - key: HSA_KEYWORDS
         value: hsa,fsa,hydrocortisone,anti-itch,first aid,bandage,medicine,medical,sunscreen,spf,thermometer,covid,allergy,ibuprofen,acetaminophen,pain relief,antacid,contact lens,saline,eczema
       - key: MAX_ORDER_EMAILS
-        value: 10
+        value: 5
+      - key: ORDER_ANALYSIS_USE_OPENAI
+        value: false
+      - key: ORDER_ANALYSIS_TIMEOUT_SECONDS
+        value: 600
       - key: DEFAULT_SHIPPING_ADDRESS
         sync: false
       - key: ORDER_EMAIL_QUERY

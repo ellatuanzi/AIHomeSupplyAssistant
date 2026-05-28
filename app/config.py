@@ -29,10 +29,11 @@ class Settings(BaseSettings):
         'subject:"your order" OR subject:ordered) '
         '-subject:shipped -subject:delivered -category:promotions newer_than:14d'
     )
-    max_order_emails: int = 10
+    max_order_emails: int = 5
 
     openai_api_key: str = Field(default="", repr=False)
     openai_model: str = "gpt-4.1-mini"
+    openai_timeout_seconds: float = 20
 
     retail_search_mode: str = "search_urls"
 

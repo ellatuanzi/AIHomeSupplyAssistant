@@ -14,7 +14,15 @@ class OpenAIRecommendationService:
     def __init__(self) -> None:
         settings = get_settings()
         self.model = settings.openai_model
-        self.client = OpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+        self.client = (
+            OpenAI(
+                api_key=settings.openai_api_key,
+                timeout=settings.openai_timeout_seconds,
+                max_retries=0,
+            )
+            if settings.openai_api_key
+            else None
+        )
 
     def choose_best_option(
         self,
@@ -69,4 +77,3 @@ class OpenAIRecommendationService:
         order = {"低": 1, "中": 2, "高": 3, "紧急": 4}
         urgencies = [event.get("紧急度", "中") for event in events]
         return max(urgencies, key=lambda value: order.get(value, 0), default="中")
-
