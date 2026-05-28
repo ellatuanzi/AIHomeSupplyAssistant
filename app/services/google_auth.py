@@ -85,7 +85,18 @@ def _json_from_env(value: str) -> dict:
     import base64
     import json
 
+    value = value.strip()
     try:
-        return json.loads(value)
+        parsed = json.loads(value)
+        if isinstance(parsed, str):
+            parsed = json.loads(parsed)
+        return parsed
     except json.JSONDecodeError:
-        return json.loads(base64.b64decode(value).decode("utf-8"))
+        try:
+            padded = value + "=" * (-len(value) % 4)
+            return json.loads(base64.b64decode(padded).decode("utf-8"))
+        except Exception as exc:
+            raise RuntimeError(
+                "GOOGLE_TOKEN_JSON 格式无效。请粘贴完整的一行 JSON，"
+                "从 { 开始到 } 结束；不要粘贴文件名、说明文字或被截断的内容。"
+            ) from exc
