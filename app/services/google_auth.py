@@ -98,3 +98,27 @@ def _json_from_env(value: str) -> dict:
         try:
             padded = value + "=" * (-len(value) % 4)
             return json.loads(base64.b64decode(padded).decode("utf-8"))
+        except Exception as exc:
+            raise RuntimeError(
+                "GOOGLE_TOKEN_JSON 格式无效。请粘贴完整的一行 JSON，"
+                "从 { 开始到 } 结束；不要粘贴文件名、说明文字或被截断的内容。"
+            ) from exc
+
+
+def _print_env_shape(value: str) -> None:
+    if not os.environ.get("DEBUG_GOOGLE_TOKEN_SHAPE"):
+        return
+    stripped = value.strip()
+    print(
+        {
+            "google_token_shape": {
+                "length": len(value),
+                "stripped_length": len(stripped),
+                "starts_with_json": stripped.startswith("{"),
+                "ends_with_json": stripped.endswith("}"),
+                "contains_json_braces": "{" in stripped and "}" in stripped,
+                "contains_space": any(char.isspace() for char in stripped),
+                "looks_masked": "•" in stripped or "*" in stripped,
+            }
+        }
+    )
