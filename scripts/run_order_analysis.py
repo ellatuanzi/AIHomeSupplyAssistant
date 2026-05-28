@@ -29,7 +29,15 @@ if os.environ.get("ORDER_ANALYSIS_USE_OPENAI", "").lower() not in {"1", "true", 
 from app.agents.order_analysis_agent import OrderAnalysisAgent
 
 
+def _stop_cleanly_on_timeout(signum, frame) -> None:
+    print({"status": "跳过", "reason": "订单分析超过时间上限，已停止以避免 Render 长时间挂起。"})
+    raise SystemExit(0)
+
+
 if __name__ == "__main__":
+    signal.signal(signal.SIGALRM, _stop_cleanly_on_timeout)
     signal.alarm(int(os.environ.get("ORDER_ANALYSIS_TIMEOUT_SECONDS", "600")))
+    print({"status": "开始", "query": os.environ["ORDER_EMAIL_QUERY"]})
     insights = OrderAnalysisAgent().run()
+    signal.alarm(0)
     print({"status": "完成", "order_insights_created": len(insights)})
