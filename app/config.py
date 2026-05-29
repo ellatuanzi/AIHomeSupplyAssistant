@@ -30,6 +30,7 @@ class Settings(BaseSettings):
         '-subject:shipped -subject:delivered -category:promotions newer_than:14d'
     )
     max_order_emails: int = 5
+    duplicate_event_window_minutes: int = 10
 
     openai_api_key: str = Field(default="", repr=False)
     openai_model: str = "gpt-4.1-mini"
