@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 
 from app.config import get_settings
 from app.models.inventory import InventoryItem
@@ -32,17 +32,7 @@ class OpenAIRecommendationService:
         options: list[RetailOption],
     ) -> dict[str, Any]:
         if not self.client:
-            first = options[0]
-            return {
-                "recommended_retailer": first.retailer,
-                "recommended_brand": first.brand,
-                "product_title": first.product_title,
-                "estimated_price": first.estimated_price,
-                "product_url": first.product_url,
-                "confidence": 70,
-                "urgency": self._max_urgency(events) or item.urgency_default,
-                "reasoning": "尚未配置 OpenAI API Key；已根据偏好品牌、偏好店铺和常购规格生成基础推荐。",
-            }
+            return self._fallback_choice(item, events, options)
 
         prompt = {
             "instruction": "你是家庭补货助手。请用中文推荐一个最实用的补货选项，不要自动下单。",
@@ -61,16 +51,37 @@ class OpenAIRecommendationService:
                 "reasoning": "中文，一句话",
             },
         }
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-            ],
-            temperature=0.2,
-        )
-        content = response.choices[0].message.content or "{}"
-        return json.loads(content)
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+                temperature=0.2,
+            )
+            content = response.choices[0].message.content or "{}"
+            return json.loads(content)
+        except (OpenAIError, json.JSONDecodeError):
+            return self._fallback_choice(item, events, options)
+
+    def _fallback_choice(
+        self,
+        item: InventoryItem,
+        events: list[dict[str, Any]],
+        options: list[RetailOption],
+    ) -> dict[str, Any]:
+        first = options[0]
+        return {
+            "recommended_retailer": first.retailer,
+            "recommended_brand": first.brand,
+            "product_title": first.product_title,
+            "estimated_price": first.estimated_price,
+            "product_url": first.product_url,
+            "confidence": 70,
+            "urgency": self._max_urgency(events) or item.urgency_default,
+            "reasoning": "已根据偏好品牌、偏好店铺和常购规格生成基础推荐；AI 细化分析不可用时会自动使用此结果。",
+        }
 
     @staticmethod
     def _max_urgency(events: list[dict[str, Any]]) -> str:
