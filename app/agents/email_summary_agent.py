@@ -23,6 +23,7 @@ class EmailSummaryAgent:
         order_insights: list[dict] | None = None,
     ) -> tuple[str, str]:
         order_insights = order_insights or []
+        pending_items = self.pending_items(pending)
         subject = (
             f"今日家庭补货提醒：{len(recommendations)} 件需要处理，"
             f"{len(order_insights)} 条订单分析"
@@ -50,13 +51,27 @@ class EmailSummaryAgent:
                         f"链接：{rec.product_url}",
                     ]
                 )
+        elif pending_items:
+            lines.append("暂无今天新生成的补货推荐，但下面这些仍待确认：")
+            for index, row in enumerate(pending_items, start=1):
+                lines.extend(
+                    [
+                        "",
+                        f"{index}. {row.get('商品名称', '')}",
+                        f"紧急度：{row.get('紧急度', '')}",
+                        f"推荐商品：{row.get('推荐商品', '')}",
+                        f"推荐店铺：{row.get('推荐店铺', '')}",
+                        f"预估价格：{row.get('预估价格', '')}",
+                        f"推荐理由：{row.get('推荐理由', '')}",
+                        f"链接：{row.get('商品链接', '')}",
+                    ]
+                )
         else:
             lines.append("暂无新的低库存商品。")
 
         lines.extend(["", "已下单：", "请在 Google Sheet 中查看状态为“已下单”的项目。"])
 
         lines.extend(["", "仍待确认："])
-        pending_items = self.pending_items(pending)
         if pending_items:
             lines.extend([f"- {row.get('商品名称')}: {row.get('推荐商品')}" for row in pending_items])
         else:
