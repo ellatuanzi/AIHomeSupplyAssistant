@@ -9,6 +9,7 @@ from app.agents.order_analysis_agent import OrderAnalysisAgent
 from app.agents.receipt_analysis_agent import ReceiptAnalysisAgent
 from app.models.events import LowStockEventCreate
 from app.models.recommendations import RecommendationStatusUpdate
+from app.config import get_settings
 from app.services.google_sheets import GoogleSheetsService
 from app.utils.dates import now_local_string
 from app.utils.ids import new_id
@@ -40,6 +41,19 @@ def create_low_stock_event(payload: LowStockEventCreate) -> dict[str, str]:
     item = sheets.find_inventory_item(payload.item_id)
     if not item:
         raise HTTPException(status_code=404, detail=f"找不到商品ID：{payload.item_id}")
+
+    existing_event = sheets.recent_low_stock_event(
+        item.item_id,
+        payload.source,
+        get_settings().duplicate_event_window_minutes,
+    )
+    if existing_event:
+        return {
+            "status": "已存在",
+            "event_id": existing_event.get("事件ID", ""),
+            "item_id": item.item_id,
+            "message": f"{item.item_name} 最近已经记录过低库存，本次没有重复添加。",
+        }
 
     event_id = new_id("evt")
     sheets.append_low_stock_event(
