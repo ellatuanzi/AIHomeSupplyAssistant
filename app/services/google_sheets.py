@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any
 
 from googleapiclient.discovery import build
@@ -8,6 +9,7 @@ from googleapiclient.discovery import build
 from app.config import get_settings
 from app.models.inventory import InventoryItem
 from app.services.google_auth import get_google_credentials
+from app.utils.dates import now_local
 
 
 SHEET_TABS = {
@@ -263,6 +265,21 @@ class GoogleSheetsService:
     def append_low_stock_event(self, row: list[Any]) -> None:
         self.append_row(SHEET_TABS["events"], row)
 
+    def recent_low_stock_event(
+        self,
+        item_id: str,
+        source: str,
+        within_minutes: int,
+    ) -> dict[str, Any] | None:
+        cutoff = now_local().replace(tzinfo=None) - timedelta(minutes=within_minutes)
+        for row in reversed(self.read_rows(SHEET_TABS["events"])):
+            if row.get("商品ID") != item_id or row.get("来源") != source:
+                continue
+            recorded_at = _parse_local_datetime(row.get("记录时间", ""))
+            if recorded_at and recorded_at >= cutoff:
+                return row
+        return None
+
     def append_recommendation(self, row: list[Any]) -> None:
         self.append_row(SHEET_TABS["recommendations"], row)
 
@@ -328,3 +345,10 @@ def _column_name(index: int) -> str:
         index, remainder = divmod(index - 1, 26)
         name = chr(65 + remainder) + name
     return name
+
+
+def _parse_local_datetime(value: str) -> datetime | None:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
