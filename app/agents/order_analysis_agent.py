@@ -398,7 +398,7 @@ def extract_product_blocks_from_order_body(body: str) -> list[dict[str, str]]:
     blocks = []
 
     for idx, line in enumerate(lines):
-        quantity_match = re.search(r"\bquantity\s*:\s*(\d+)", line, flags=re.I)
+        quantity_match = re.search(r"\b(?:quantity|qty)\s*:?\s*(\d+)", line, flags=re.I)
         if not quantity_match:
             continue
 
@@ -406,7 +406,7 @@ def extract_product_blocks_from_order_body(body: str) -> list[dict[str, str]]:
         if not title:
             continue
 
-        price = _next_price(lines, idx + 1)
+        price = _nearby_price(lines, idx)
         blocks.append(
             {
                 "product_title": title,
@@ -434,14 +434,33 @@ def _previous_product_title(lines: list[str], quantity_index: int) -> str:
 
 def _next_price(lines: list[str], start_index: int) -> str:
     for idx in range(start_index, min(len(lines), start_index + 5)):
-        match = re.search(
-            r"(?:\$\s?\d+(?:[\.,]\d{2})?|\d+(?:[\.,]\d{1,2})?\s*USD)",
-            lines[idx],
-            flags=re.I,
-        )
-        if match:
-            return match.group(0).replace(" ", "").replace(",", ".")
+        price = _price_from_line(lines[idx])
+        if price:
+            return price
     return ""
+
+
+def _nearby_price(lines: list[str], quantity_index: int) -> str:
+    price = _price_from_line(lines[quantity_index])
+    if price:
+        return price
+    price = _next_price(lines, quantity_index + 1)
+    if price:
+        return price
+    for idx in range(quantity_index - 1, max(-1, quantity_index - 4), -1):
+        price = _price_from_line(lines[idx])
+        if price:
+            return price
+    return ""
+
+
+def _price_from_line(line: str) -> str:
+    match = re.search(
+        r"(?:\$\s?\d+(?:[\.,]\d{2})?|\d+(?:[\.,]\d{1,2})?\s*USD)",
+        line,
+        flags=re.I,
+    )
+    return match.group(0).replace(" ", "").replace(",", ".") if match else ""
 
 
 def _looks_like_product_title(value: str) -> bool:
@@ -453,6 +472,8 @@ def _looks_like_product_title(value: str) -> bool:
         "order",
         "subtotal",
         "total",
+        "price",
+        "qty",
         "shipping",
         "payment",
         "address",
@@ -506,6 +527,11 @@ def is_order_received_email(email: dict[str, str]) -> bool:
         "shipping update",
         "delivered",
         "out for delivery",
+        "substitution",
+        "substitutions",
+        "your order has been executed",
+        "order has been executed",
+        "has been executed",
         "promotion",
         "promotional",
         "promo",
@@ -536,6 +562,7 @@ def is_order_received_email(email: dict[str, str]) -> bool:
     positive_subject_terms = [
         "order received",
         "order confirmation",
+        "your order confirmation",
         "your order",
         "ordered",
         "order placed",
