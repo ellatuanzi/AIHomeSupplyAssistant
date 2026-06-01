@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     max_order_emails: int = 5
     duplicate_event_window_minutes: int = 10
 
+    gemini_api_key: str = Field(default="", repr=False)
+    gemini_model: str = "gemini-3.5-flash"
+    gemini_timeout_seconds: float = 20
+
     openai_api_key: str = Field(default="", repr=False)
     openai_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: float = 20
