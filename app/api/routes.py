@@ -1,8 +1,11 @@
 from html import escape
 import json
+import re
+from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 
 from app.agents.daily_replenishment_agent import DailyReplenishmentAgent
 from app.agents.daily_send_guard import DailySendGuard
@@ -18,6 +21,21 @@ from app.utils.ids import new_id
 router = APIRouter()
 
 
+COMMON_ITEM_ALIASES = {
+    "toilet_paper": ["手纸", "卫生纸", "厕纸", "toilet paper"],
+    "paper_towels": ["厨房纸", "paper towel", "paper towels"],
+    "trash_bags": ["垃圾袋", "trash bag", "trash bags"],
+    "detergent": ["洗衣液", "洗衣粉", "detergent"],
+    "pet_food": ["宠物粮", "狗粮", "猫粮", "pet food"],
+    "body_lotion": ["身体乳", "润肤乳", "body lotion", "lotion"],
+    "swiffer_wet_cloth": ["swiffer", "湿拖布", "拖地湿巾", "wet cloth"],
+    "pencil": ["铅笔", "pencil", "pencils"],
+    "eraser": ["橡皮", "eraser", "erasers"],
+    "kids_toothpaste": ["儿童牙膏", "牙膏", "kid toothpaste", "kids toothpaste"],
+    "kids_electric_toothbrush": ["儿童牙刷", "电动牙刷", "electric toothbrush"],
+}
+
+
 LOCATION_DETAIL_OPTIONS = {
     "车库": ["货架", "收纳柜", "门口备用区"],
     "一层": ["玄关柜", "客厅柜", "储物柜"],
@@ -31,6 +49,11 @@ LOCATION_DETAIL_OPTIONS = {
     "汤圆洗手间": ["洗手台下", "镜柜", "马桶旁"],
     "三层收纳柜": ["上层", "中层", "下层"],
 }
+
+
+class VoiceCommandRequest(BaseModel):
+    text: str
+    dry_run: bool = False
 
 
 def sheets_service() -> GoogleSheetsService:
@@ -131,6 +154,195 @@ def _split_location_string(value: str) -> list[str]:
     return [part.strip() for part in re.split(r"[,，、/;；\n]+", value) if part.strip()]
 
 
+def _known_location_names() -> list[str]:
+    names = _location_options([])
+    for area, details in LOCATION_DETAIL_OPTIONS.items():
+        for detail in details:
+            names.append(f"{area} - {detail}")
+            names.append(detail)
+    return sorted({name.strip() for name in names if name.strip()}, key=len, reverse=True)
+
+
+def _find_location_in_text(text: str) -> str:
+    normalized = text.lower()
+    for location_name in _known_location_names():
+        if location_name.lower() in normalized:
+            return location_name
+    return ""
+
+
+def _locations_in_text(text: str) -> list[str]:
+    normalized = text.lower()
+    matches = []
+    for location_name in _known_location_names():
+        start = normalized.find(location_name.lower())
+        if start >= 0:
+            matches.append((start, -len(location_name), location_name))
+    by_start = {}
+    for start, negative_length, location_name in sorted(matches):
+        if start not in by_start:
+            by_start[start] = (negative_length, location_name)
+    return [value[1] for _, value in sorted(by_start.items())]
+
+
+def _find_source_target_locations(text: str) -> tuple[str, str]:
+    source = ""
+    target = ""
+    ba_match = re.search(r"把(.+?)的.+?(?:拿|搬|移|放|补|带)?到(.+)", text)
+    if ba_match:
+        source = _find_location_in_text(ba_match.group(1))
+        target = _find_location_in_text(ba_match.group(2))
+    from_to_match = re.search(r"从(.+?)(?:拿|搬|移|放|补|带)?到(.+)", text)
+    if from_to_match and not (source and target):
+        source = _find_location_in_text(from_to_match.group(1))
+        target = _find_location_in_text(from_to_match.group(2))
+    if not source:
+        source_match = re.search(r"(?:从|来源|源位置)(.+?)(?:到|去|拿|搬|移|补|$)", text)
+        if source_match:
+            source = _find_location_in_text(source_match.group(1))
+    if not target:
+        target_match = re.search(r"(?:到|去|目标|放到|拿到)(.+)", text)
+        if target_match:
+            target = _find_location_in_text(target_match.group(1))
+    locations = _locations_in_text(text)
+    if not source and len(locations) >= 2:
+        source = locations[0]
+    if not target:
+        target = locations[-1] if locations else _find_location_in_text(text)
+    return source, target
+
+
+def _match_voice_item(text: str, inventory: list[Any]) -> Any | None:
+    normalized = text.lower().replace(" ", "").replace("_", "")
+    best = None
+    best_score = 0
+    for item in inventory:
+        candidates = [
+            item.item_id,
+            item.item_name,
+            item.category,
+            item.preferred_brand,
+            item.typical_quantity,
+        ] + COMMON_ITEM_ALIASES.get(item.item_id, [])
+        score = 0
+        for candidate in candidates:
+            candidate_key = str(candidate).lower().replace(" ", "").replace("_", "")
+            if candidate_key and candidate_key in normalized:
+                score = max(score, len(candidate_key))
+        if score > best_score:
+            best = item
+            best_score = score
+    return best
+
+
+def _voice_action(text: str) -> str:
+    lowered = text.lower()
+    if any(token in lowered for token in ["完成", "做好", "做完", "done", "finish", "finished"]):
+        return "complete_task"
+    if any(token in lowered for token in ["任务", "todo", "to do", "待办", "拿到", "搬到", "移到", "补到"]):
+        return "create_task"
+    if any(token in lowered for token in ["没有", "没了", "空了", "用完", "out of", "empty"]):
+        return "empty_stock"
+    return "low_stock"
+
+
+def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
+    command = text.strip()
+    if not command:
+        raise HTTPException(status_code=400, detail="语音文字为空。")
+    sheets = sheets_service()
+    item = _match_voice_item(command, sheets.get_inventory_items())
+    if not item:
+        raise HTTPException(status_code=404, detail=f"没有从语音中识别到商品：{command}")
+
+    action = _voice_action(command)
+    source_location, target_location = _find_source_target_locations(command)
+    location = target_location or source_location or _find_location_in_text(command)
+    note = f"语音指令：{command}"
+
+    if dry_run:
+        return {
+            "status": "预览",
+            "action": action,
+            "item_id": item.item_id,
+            "item_name": item.item_name,
+            "location": location,
+            "source_location": source_location,
+            "target_location": target_location,
+            "message": "这是预览，没有更新 Google Sheet。",
+        }
+
+    if action in {"low_stock", "empty_stock"}:
+        status = "empty" if action == "empty_stock" else "low"
+        urgency = "紧急" if status == "empty" else item.urgency_default or "中"
+        status_note = "已经没有库存" if status == "empty" else "低库存"
+        combined_note = "。".join(part for part in [status_note, f"位置：{location}" if location else "", note] if part)
+        payload = LowStockEventCreate(
+            item_id=item.item_id,
+            source="语音",
+            urgency=urgency,
+            note=combined_note,
+            location=location,
+        )
+        result = create_low_stock_event(payload)
+        result.update(
+            {
+                "action": action,
+                "location": location,
+                "source_location": source_location,
+                "target_location": target_location,
+            }
+        )
+        return result
+
+    sheets.ensure_item_location(item.item_id, item.item_name, source_location, "语音")
+    sheets.ensure_item_location(item.item_id, item.item_name, target_location or location, "语音")
+    if action == "complete_task":
+        completed = sheets.complete_open_task(item.item_id, target_location=target_location or location)
+        return {
+            "status": "已完成" if completed else "未找到",
+            "action": action,
+            "item_id": item.item_id,
+            "item_name": item.item_name,
+            "location": target_location or location,
+            "source_location": source_location,
+            "target_location": target_location,
+            "message": (
+                f"{item.item_name} 的待办任务已完成。"
+                if completed
+                else f"没有找到 {item.item_name} 的待完成任务。"
+            ),
+        }
+
+    task_id = new_id("task")
+    sheets.append_task(
+        [
+            task_id,
+            now_local_string(),
+            "",
+            item.item_id,
+            item.item_name,
+            "搬运补货",
+            source_location,
+            target_location or location,
+            "待办",
+            "语音",
+            note,
+        ]
+    )
+    return {
+        "status": "已创建",
+        "action": action,
+        "task_id": task_id,
+        "item_id": item.item_id,
+        "item_name": item.item_name,
+        "location": target_location or location,
+        "source_location": source_location,
+        "target_location": target_location,
+        "message": f"已创建任务：把 {item.item_name} 从 {source_location or '未指定位置'} 拿到 {target_location or location or '未指定位置'}。",
+    }
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -163,6 +375,125 @@ def add_item_location(
         raise HTTPException(status_code=404, detail=f"找不到商品ID：{item_id}")
     sheets.ensure_item_location(item.item_id, item.item_name, location, "API", note)
     return {"status": "已记录", "item_id": item.item_id, "location": location}
+
+
+@router.get("/voice", response_class=HTMLResponse)
+def voice_entry() -> HTMLResponse:
+    html = """
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>语音入口</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 28px;
+            background: #f7f7f4;
+            color: #1f2933;
+          }
+          main {
+            max-width: 520px;
+            margin: 0 auto;
+          }
+          h1 {
+            font-size: 32px;
+            margin: 20px 0 8px;
+          }
+          p {
+            color: #52606d;
+            font-size: 17px;
+            line-height: 1.5;
+          }
+          label {
+            display: block;
+            margin: 20px 0 8px;
+            font-weight: 650;
+          }
+          textarea {
+            width: 100%;
+            min-height: 132px;
+            border: 1px solid #cbd2d9;
+            border-radius: 8px;
+            padding: 12px;
+            font: inherit;
+            box-sizing: border-box;
+          }
+          button {
+            width: 100%;
+            min-height: 52px;
+            margin-top: 16px;
+            border: 0;
+            border-radius: 8px;
+            background: #2563eb;
+            color: white;
+            font-size: 18px;
+            font-weight: 700;
+          }
+        </style>
+      </head>
+      <body>
+        <main>
+          <h1>语音入口</h1>
+          <p>把手机听写出来的指令贴在这里，系统会更新 Google Sheet 和待办任务，不会自动购买。</p>
+          <form method="get" action="/voice/command">
+            <label for="text">语音指令</label>
+            <textarea id="text" name="text" placeholder="例如：主卧洗手间手纸低库存。或者：把车库的手纸拿到主卧洗手间。"></textarea>
+            <button type="submit">提交</button>
+          </form>
+        </main>
+      </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
+
+@router.get("/voice/command", response_class=HTMLResponse)
+def voice_command_get(
+    text: str = Query(default=""),
+    dry_run: bool = Query(default=False),
+) -> HTMLResponse:
+    result = _handle_voice_command(text, dry_run=dry_run)
+    safe_message = escape(result.get("message", "已处理"))
+    safe_item = escape(result.get("item_name", ""))
+    safe_status = escape(result.get("status", "已处理"))
+    safe_action = escape(result.get("action", ""))
+    return HTMLResponse(
+        f"""
+        <!doctype html>
+        <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{safe_status}</title>
+            <style>
+              body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 28px; background: #f7f7f4; color: #1f2933; }}
+              main {{ max-width: 520px; margin: 0 auto; padding-top: 36px; }}
+              h1 {{ font-size: 32px; margin: 0 0 12px; }}
+              p {{ color: #52606d; font-size: 17px; line-height: 1.5; }}
+              a {{ display: inline-block; margin-top: 20px; padding: 14px 18px; border-radius: 8px; background: #2563eb; color: white; font-weight: 700; text-decoration: none; }}
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>{safe_status}</h1>
+              <p>{safe_message}</p>
+              <p>商品：{safe_item}</p>
+              <p>分类动作：{safe_action}</p>
+              <p>系统只更新了 Google Sheet，不会自动购买。</p>
+              <a href="/voice">返回</a>
+            </main>
+          </body>
+        </html>
+        """
+    )
+
+
+@router.post("/voice/command")
+def voice_command_post(payload: VoiceCommandRequest) -> dict[str, Any]:
+    return _handle_voice_command(payload.text, dry_run=payload.dry_run)
 
 
 @router.post("/events/low-stock")
