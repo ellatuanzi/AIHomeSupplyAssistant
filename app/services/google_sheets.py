@@ -15,6 +15,8 @@ from app.utils.dates import now_local
 SHEET_TABS = {
     "inventory": "库存清单",
     "events": "低库存记录",
+    "item_locations": "商品位置",
+    "tasks": "待办任务",
     "history": "购买历史",
     "order_insights": "订单分析",
     "recommendations": "补货推荐",
@@ -43,6 +45,29 @@ HEADERS = {
         "紧急度",
         "备注",
         "是否已处理",
+        "位置",
+    ],
+    "商品位置": [
+        "位置ID",
+        "商品ID",
+        "商品名称",
+        "位置",
+        "默认补货来源",
+        "当前状态",
+        "备注",
+    ],
+    "待办任务": [
+        "任务ID",
+        "创建时间",
+        "完成时间",
+        "商品ID",
+        "商品名称",
+        "任务类型",
+        "来源位置",
+        "目标位置",
+        "状态",
+        "来源",
+        "备注",
     ],
     "购买历史": [
         "购买ID",
@@ -270,14 +295,86 @@ class GoogleSheetsService:
         item_id: str,
         source: str,
         within_minutes: int,
+        location: str = "",
     ) -> dict[str, Any] | None:
         cutoff = now_local().replace(tzinfo=None) - timedelta(minutes=within_minutes)
         for row in reversed(self.read_rows(SHEET_TABS["events"])):
             if row.get("商品ID") != item_id or row.get("来源") != source:
                 continue
+            if location and row.get("位置", "") != location:
+                continue
             recorded_at = _parse_local_datetime(row.get("记录时间", ""))
             if recorded_at and recorded_at >= cutoff:
                 return row
+        return None
+
+    def item_locations(self, item_id: str) -> list[str]:
+        rows = self.read_rows(SHEET_TABS["item_locations"])
+        locations = [
+            row.get("位置", "").strip()
+            for row in rows
+            if row.get("商品ID") == item_id and row.get("位置", "").strip()
+        ]
+        if locations:
+            return _dedupe_strings(locations)
+
+        item = self.find_inventory_item(item_id)
+        if not item or not item.household_location:
+            return []
+        return _dedupe_strings(_split_locations(item.household_location))
+
+    def ensure_item_location(
+        self,
+        item_id: str,
+        item_name: str,
+        location: str,
+        source: str = "",
+        note: str = "",
+    ) -> None:
+        if not location.strip():
+            return
+        normalized_location = location.strip().lower()
+        for row in self.read_rows(SHEET_TABS["item_locations"]):
+            if (
+                row.get("商品ID") == item_id
+                and row.get("位置", "").strip().lower() == normalized_location
+            ):
+                return
+        self.append_row(
+            SHEET_TABS["item_locations"],
+            [
+                f"loc_{item_id}_{len(self.item_locations(item_id)) + 1}",
+                item_id,
+                item_name,
+                location.strip(),
+                source,
+                "已记录",
+                note,
+            ],
+        )
+
+    def append_task(self, row: list[Any]) -> None:
+        self.append_row(SHEET_TABS["tasks"], row)
+
+    def complete_open_task(
+        self,
+        item_id: str,
+        target_location: str = "",
+        task_type: str = "搬运补货",
+    ) -> dict[str, Any] | None:
+        rows = self.read_rows(SHEET_TABS["tasks"])
+        for idx, row in reversed(list(enumerate(rows, start=2))):
+            if row.get("商品ID") != item_id:
+                continue
+            if task_type and row.get("任务类型") != task_type:
+                continue
+            if target_location and row.get("目标位置") != target_location:
+                continue
+            if row.get("状态", "").strip() in {"完成", "已完成"}:
+                continue
+            self.update_cell(SHEET_TABS["tasks"], idx, "C", now_local().strftime("%Y-%m-%d %H:%M:%S"))
+            self.update_cell(SHEET_TABS["tasks"], idx, "I", "完成")
+            return row
         return None
 
     def append_recommendation(self, row: list[Any]) -> None:
@@ -310,6 +407,16 @@ class GoogleSheetsService:
 
     def recommendations(self) -> list[dict[str, Any]]:
         return self.read_rows(SHEET_TABS["recommendations"])
+
+    def tasks(self) -> list[dict[str, Any]]:
+        return self.read_rows(SHEET_TABS["tasks"])
+
+    def pending_tasks(self) -> list[dict[str, Any]]:
+        return [
+            row
+            for row in self.tasks()
+            if row.get("状态", "").strip() not in {"完成", "已完成"}
+        ]
 
     def send_logs(self) -> list[dict[str, Any]]:
         return self.read_rows(SHEET_TABS["send_log"])
@@ -352,3 +459,21 @@ def _parse_local_datetime(value: str) -> datetime | None:
         return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
+
+
+def _split_locations(value: str) -> list[str]:
+    import re
+
+    return [part.strip() for part in re.split(r"[,，、/;；\n]+", value) if part.strip()]
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    seen = set()
+    result = []
+    for value in values:
+        key = value.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(value)
+    return result

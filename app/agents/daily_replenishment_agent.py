@@ -95,12 +95,13 @@ class DailyReplenishmentAgent:
 
         if send_email:
             pending_recommendations = self.sheets.recommendations()
+            pending_tasks = self.sheets.pending_tasks()
             email_agent = EmailSummaryAgent()
             if email_agent.should_send(
-                created_recommendations, pending_recommendations, order_insights
+                created_recommendations, pending_recommendations, order_insights, pending_tasks
             ):
                 subject, body = email_agent.build(
-                    created_recommendations, pending_recommendations, order_insights
+                    created_recommendations, pending_recommendations, order_insights, pending_tasks
                 )
                 gmail = self.gmail or GmailService()
                 gmail.send_email(subject, body)
@@ -111,5 +112,6 @@ class DailyReplenishmentAgent:
             "items_reviewed": len(events_by_item),
             "recommendations_created": len(created_recommendations),
             "order_insights_created": len(order_insights),
+            "pending_tasks": len(self.sheets.pending_tasks()) if send_email else 0,
             "email_sent": email_sent,
         }

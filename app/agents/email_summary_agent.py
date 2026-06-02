@@ -13,20 +13,23 @@ class EmailSummaryAgent:
         recommendations: list[Recommendation],
         pending: list[dict[str, str]],
         order_insights: list[dict] | None = None,
+        pending_tasks: list[dict] | None = None,
     ) -> bool:
-        return bool(recommendations or cls.pending_items(pending) or order_insights)
+        return bool(recommendations or cls.pending_items(pending) or order_insights or pending_tasks)
 
     def build(
         self,
         recommendations: list[Recommendation],
         pending: list[dict[str, str]],
         order_insights: list[dict] | None = None,
+        pending_tasks: list[dict] | None = None,
     ) -> tuple[str, str]:
         order_insights = order_insights or []
+        pending_tasks = pending_tasks or []
         pending_items = self.pending_items(pending)
         subject = (
             f"今日家庭补货提醒：{len(recommendations)} 件需要处理，"
-            f"{len(order_insights)} 条订单分析"
+            f"{len(pending_tasks)} 个待办，{len(order_insights)} 条订单分析"
         )
 
         lines = [
@@ -74,6 +77,18 @@ class EmailSummaryAgent:
         lines.extend(["", "仍待确认："])
         if pending_items:
             lines.extend([f"- {row.get('商品名称')}: {row.get('推荐商品')}" for row in pending_items])
+        else:
+            lines.append("暂无。")
+
+        lines.extend(["", "家庭待办："])
+        if pending_tasks:
+            for task in pending_tasks:
+                lines.append(
+                    "- "
+                    f"{task.get('任务类型', '任务')}: "
+                    f"{task.get('商品名称', '')} "
+                    f"{task.get('来源位置', '')} -> {task.get('目标位置', '')}"
+                )
         else:
             lines.append("暂无。")
 

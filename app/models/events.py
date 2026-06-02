@@ -13,6 +13,7 @@ class LowStockEventCreate(BaseModel):
     source: Source = "API"
     urgency: Urgency = "中"
     note: str = ""
+    location: str = ""
 
 
 class LowStockEvent(BaseModel):
@@ -23,5 +24,5 @@ class LowStockEvent(BaseModel):
     source: Source
     urgency: Urgency
     note: str = ""
+    location: str = ""
     resolved: bool = False
-
