@@ -22,7 +22,16 @@ router = APIRouter()
 
 
 COMMON_ITEM_ALIASES = {
-    "toilet_paper": ["手纸", "卫生纸", "厕纸", "toilet paper"],
+    "toilet_paper": [
+        "手纸",
+        "手指",
+        "卫生纸",
+        "卫生只",
+        "厕纸",
+        "厕只",
+        "卷纸",
+        "toilet paper",
+    ],
     "paper_towels": ["厨房纸", "paper towel", "paper towels"],
     "trash_bags": ["垃圾袋", "trash bag", "trash bags"],
     "detergent": ["洗衣液", "洗衣粉", "detergent"],

@@ -49,6 +49,17 @@ def test_voice_command_records_low_stock(monkeypatch):
     assert fake.low_stock_rows[0][8] == "主卧洗手间"
 
 
+def test_voice_command_handles_toilet_paper_mishearing(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("主卧洗手间手指低库存")
+
+    assert result["status"] == "已记录"
+    assert result["item_id"] == "toilet_paper"
+    assert fake.low_stock_rows[0][3] == "Toilet Paper"
+
+
 def test_voice_command_creates_task(monkeypatch):
     fake = FakeSheets()
     monkeypatch.setattr(routes, "sheets_service", lambda: fake)
