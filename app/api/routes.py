@@ -255,14 +255,45 @@ def _voice_action(text: str) -> str:
     return "low_stock"
 
 
+def _voice_failure_result(message: str, command: str = "", action: str = "") -> dict[str, Any]:
+    return {
+        "ok": False,
+        "updated_google_sheet": False,
+        "status": "未更新",
+        "action": action,
+        "item_id": "",
+        "item_name": "",
+        "location": "",
+        "source_location": "",
+        "target_location": "",
+        "message": message,
+        "recognized_text": command,
+    }
+
+
+def _mark_voice_success(result: dict[str, Any], updated: bool = True) -> dict[str, Any]:
+    result["ok"] = True
+    result["updated_google_sheet"] = updated
+    return result
+
+
 def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
     command = text.strip()
     if not command:
-        raise HTTPException(status_code=400, detail="语音文字为空。")
-    sheets = sheets_service()
-    item = _match_voice_item(command, sheets.get_inventory_items())
+        return _voice_failure_result("没有收到语音文字，所以没有更新 Google Sheet。")
+
+    try:
+        sheets = sheets_service()
+        inventory = sheets.get_inventory_items()
+    except Exception as exc:
+        return _voice_failure_result(f"无法读取 Google Sheet，所以没有更新：{exc}", command)
+
+    item = _match_voice_item(command, inventory)
     if not item:
-        raise HTTPException(status_code=404, detail=f"没有从语音中识别到商品：{command}")
+        return _voice_failure_result(
+            f"没有从语音中识别到商品，所以没有更新 Google Sheet。听到的是：{command}",
+            command,
+        )
 
     action = _voice_action(command)
     source_location, target_location = _find_source_target_locations(command)
@@ -271,6 +302,8 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
 
     if dry_run:
         return {
+            "ok": True,
+            "updated_google_sheet": False,
             "status": "预览",
             "action": action,
             "item_id": item.item_id,
@@ -279,36 +312,47 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
             "source_location": source_location,
             "target_location": target_location,
             "message": "这是预览，没有更新 Google Sheet。",
+            "recognized_text": command,
         }
 
-    if action in {"low_stock", "empty_stock"}:
-        status = "empty" if action == "empty_stock" else "low"
-        urgency = "紧急" if status == "empty" else item.urgency_default or "中"
-        status_note = "已经没有库存" if status == "empty" else "低库存"
-        combined_note = "。".join(part for part in [status_note, f"位置：{location}" if location else "", note] if part)
-        payload = LowStockEventCreate(
-            item_id=item.item_id,
-            source="语音",
-            urgency=urgency,
-            note=combined_note,
-            location=location,
-        )
-        result = create_low_stock_event(payload)
-        result.update(
-            {
-                "action": action,
-                "location": location,
-                "source_location": source_location,
-                "target_location": target_location,
-            }
-        )
-        return result
+    try:
+        if action in {"low_stock", "empty_stock"}:
+            status = "empty" if action == "empty_stock" else "low"
+            urgency = "紧急" if status == "empty" else item.urgency_default or "中"
+            status_note = "已经没有库存" if status == "empty" else "低库存"
+            combined_note = "。".join(part for part in [status_note, f"位置：{location}" if location else "", note] if part)
+            payload = LowStockEventCreate(
+                item_id=item.item_id,
+                source="语音",
+                urgency=urgency,
+                note=combined_note,
+                location=location,
+            )
+            result = create_low_stock_event(payload)
+            result.update(
+                {
+                    "action": action,
+                    "location": location,
+                    "source_location": source_location,
+                    "target_location": target_location,
+                    "recognized_text": command,
+                }
+            )
+            return _mark_voice_success(result, updated=result.get("status") != "已存在")
 
-    sheets.ensure_item_location(item.item_id, item.item_name, source_location, "语音")
-    sheets.ensure_item_location(item.item_id, item.item_name, target_location or location, "语音")
+        sheets.ensure_item_location(item.item_id, item.item_name, source_location, "语音")
+        sheets.ensure_item_location(item.item_id, item.item_name, target_location or location, "语音")
+    except Exception as exc:
+        return _voice_failure_result(f"写入 Google Sheet 失败，所以没有更新：{exc}", command, action)
+
     if action == "complete_task":
-        completed = sheets.complete_open_task(item.item_id, target_location=target_location or location)
+        try:
+            completed = sheets.complete_open_task(item.item_id, target_location=target_location or location)
+        except Exception as exc:
+            return _voice_failure_result(f"更新待办任务失败，所以没有更新：{exc}", command, action)
         return {
+            "ok": bool(completed),
+            "updated_google_sheet": bool(completed),
             "status": "已完成" if completed else "未找到",
             "action": action,
             "item_id": item.item_id,
@@ -319,27 +363,31 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
             "message": (
                 f"{item.item_name} 的待办任务已完成。"
                 if completed
-                else f"没有找到 {item.item_name} 的待完成任务。"
+                else f"没有找到 {item.item_name} 的待完成任务，所以没有更新。"
             ),
+            "recognized_text": command,
         }
 
     task_id = new_id("task")
-    sheets.append_task(
-        [
-            task_id,
-            now_local_string(),
-            "",
-            item.item_id,
-            item.item_name,
-            "搬运补货",
-            source_location,
-            target_location or location,
-            "待办",
-            "语音",
-            note,
-        ]
-    )
-    return {
+    try:
+        sheets.append_task(
+            [
+                task_id,
+                now_local_string(),
+                "",
+                item.item_id,
+                item.item_name,
+                "搬运补货",
+                source_location,
+                target_location or location,
+                "待办",
+                "语音",
+                note,
+            ]
+        )
+    except Exception as exc:
+        return _voice_failure_result(f"创建待办任务失败，所以没有更新：{exc}", command, action)
+    return _mark_voice_success({
         "status": "已创建",
         "action": action,
         "task_id": task_id,
@@ -349,7 +397,8 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
         "source_location": source_location,
         "target_location": target_location,
         "message": f"已创建任务：把 {item.item_name} 从 {source_location or '未指定位置'} 拿到 {target_location or location or '未指定位置'}。",
-    }
+        "recognized_text": command,
+    })
 
 
 @router.get("/health")
@@ -469,6 +518,10 @@ def voice_command_get(
     safe_item = escape(result.get("item_name", ""))
     safe_status = escape(result.get("status", "已处理"))
     safe_action = escape(result.get("action", ""))
+    safe_update_note = (
+        "已更新 Google Sheet。" if result.get("updated_google_sheet") else "没有更新 Google Sheet。"
+    )
+    safe_recognized_text = escape(result.get("recognized_text", text))
     return HTMLResponse(
         f"""
         <!doctype html>
@@ -491,7 +544,9 @@ def voice_command_get(
               <p>{safe_message}</p>
               <p>商品：{safe_item}</p>
               <p>分类动作：{safe_action}</p>
-              <p>系统只更新了 Google Sheet，不会自动购买。</p>
+              <p>{safe_update_note}</p>
+              <p>听到：{safe_recognized_text}</p>
+              <p>系统不会自动购买。</p>
               <a href="/voice">返回</a>
             </main>
           </body>

@@ -8,6 +8,7 @@ class FakeSheets:
         self.task_rows = []
         self.locations = []
         self.completed = False
+        self.fail_append_low_stock = False
 
     def get_inventory_items(self):
         return [
@@ -26,6 +27,8 @@ class FakeSheets:
         return None
 
     def append_low_stock_event(self, row):
+        if self.fail_append_low_stock:
+            raise RuntimeError("模拟写入失败")
         self.low_stock_rows.append(row)
 
     def append_task(self, row):
@@ -58,6 +61,31 @@ def test_voice_command_handles_toilet_paper_mishearing(monkeypatch):
     assert result["status"] == "已记录"
     assert result["item_id"] == "toilet_paper"
     assert fake.low_stock_rows[0][3] == "Toilet Paper"
+
+
+def test_voice_command_warns_when_item_is_not_matched(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("主卧洗手间神秘东西低库存")
+
+    assert result["ok"] is False
+    assert result["updated_google_sheet"] is False
+    assert result["status"] == "未更新"
+    assert "没有从语音中识别到商品" in result["message"]
+
+
+def test_voice_command_warns_when_sheet_write_fails(monkeypatch):
+    fake = FakeSheets()
+    fake.fail_append_low_stock = True
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("主卧洗手间手纸低库存")
+
+    assert result["ok"] is False
+    assert result["updated_google_sheet"] is False
+    assert result["status"] == "未更新"
+    assert "写入 Google Sheet 失败" in result["message"]
 
 
 def test_voice_command_creates_task(monkeypatch):
