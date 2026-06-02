@@ -332,7 +332,7 @@ class OrderAnalysisAgent:
                 "address_category",
                 self._address_category(order.get("shipping_address", "")),
             ),
-            "price_judgment": "尚未配置 OpenAI API Key，无法做细致价格比较；已记录本次价格用于后续对比。",
+            "price_judgment": "AI 价格分析暂不可用，无法做细致价格比较；已记录本次价格用于后续对比。请确认 Render 已配置 GEMINI_API_KEY。",
             "restock_prediction": f"已把 {item_name} 写入购买历史，后续可结合低库存记录判断补货周期。",
             "health_or_fit_note": "尚未做成分或适用性判断；建议人工确认是否符合家庭偏好。",
             "better_suggestion": "后续可比较单位价格、规格和历史满意度后给出更好建议。",
