@@ -1,4 +1,5 @@
 from html import escape
+import json
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse
@@ -17,11 +18,117 @@ from app.utils.ids import new_id
 router = APIRouter()
 
 
+LOCATION_DETAIL_OPTIONS = {
+    "车库": ["货架", "收纳柜", "门口备用区"],
+    "一层": ["玄关柜", "客厅柜", "储物柜"],
+    "二层餐厅": ["餐边柜", "抽屉", "台面"],
+    "二层厨房": ["水槽下", " pantry", "橱柜", "岛台抽屉"],
+    "二层客卧": ["衣柜", "床头柜", "收纳箱"],
+    "二层洗手间": ["洗手台下", "镜柜", "马桶旁"],
+    "主卧": ["收纳柜", "电视柜", "床头柜", "衣柜"],
+    "主卧洗手间": ["洗手台下", "镜柜", "马桶旁", "淋浴间旁"],
+    "汤圆房间": ["书桌", "衣柜", "床头柜", "收纳柜"],
+    "汤圆洗手间": ["洗手台下", "镜柜", "马桶旁"],
+    "三层收纳柜": ["上层", "中层", "下层"],
+}
+
+
 def sheets_service() -> GoogleSheetsService:
     try:
         return GoogleSheetsService()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+def _location_options(item_locations: list[str]) -> list[str]:
+    options = _split_location_string(get_settings().household_locations) + item_locations
+    seen = set()
+    result = []
+    for option in options:
+        key = option.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(option.strip())
+    return result
+
+
+def _select_options(options: list[str], selected: str = "") -> str:
+    selected = selected.strip()
+    has_selected = selected and any(option == selected for option in options)
+    rows = []
+    if selected and not has_selected:
+        rows.append(f'<option value="__manual__" selected>其他/新增位置</option>')
+    for option in options:
+        selected_attr = " selected" if option == selected else ""
+        rows.append(f'<option value="{escape(option)}"{selected_attr}>{escape(option)}</option>')
+    if not selected or has_selected:
+        rows.append('<option value="__manual__">其他/新增位置</option>')
+    return "\n".join(rows)
+
+
+def _area_options(selected_area: str = "") -> str:
+    options = _location_options([])
+    selected = selected_area.strip()
+    has_selected = selected and any(option == selected for option in options)
+    rows = []
+    if selected and not has_selected:
+        rows.append('<option value="__manual__" selected>其他/新增区域</option>')
+    for option in options:
+        selected_attr = " selected" if option == selected else ""
+        rows.append(f'<option value="{escape(option)}"{selected_attr}>{escape(option)}</option>')
+    if not selected or has_selected:
+        rows.append('<option value="__manual__">其他/新增区域</option>')
+    return "\n".join(rows)
+
+
+def _detail_options(area: str, selected_detail: str = "") -> str:
+    options = LOCATION_DETAIL_OPTIONS.get(area, [])
+    selected = selected_detail.strip()
+    has_selected = selected and any(option == selected for option in options)
+    rows = ['<option value="">不指定具体位置</option>']
+    if selected and not has_selected:
+        rows.append('<option value="__manual__" selected>其他/新增具体位置</option>')
+    for option in options:
+        selected_attr = " selected" if option == selected else ""
+        rows.append(f'<option value="{escape(option)}"{selected_attr}>{escape(option)}</option>')
+    if not selected or has_selected:
+        rows.append('<option value="__manual__">其他/新增具体位置</option>')
+    return "\n".join(rows)
+
+
+def _location_picker_html(base_id: str, label: str, selected_location: str = "") -> str:
+    area, detail = _split_location_parts(selected_location)
+    safe_selected = escape(selected_location)
+    safe_area_manual = escape(area if area and area not in _location_options([]) else "")
+    safe_detail_manual = escape(detail if detail and detail not in LOCATION_DETAIL_OPTIONS.get(area, []) else "")
+    return f"""
+            <label>{escape(label)}</label>
+            <div class="location-picker" data-location-picker="{escape(base_id)}">
+              <select id="{escape(base_id)}_area_select" onchange="syncLocation('{escape(base_id)}')">
+                {_area_options(area)}
+              </select>
+              <input class="manual-location" id="{escape(base_id)}_area_manual" value="{safe_area_manual}" placeholder="输入新区域" oninput="syncLocation('{escape(base_id)}')">
+              <select id="{escape(base_id)}_detail_select" onchange="syncLocation('{escape(base_id)}')">
+                {_detail_options(area, detail)}
+              </select>
+              <input class="manual-location" id="{escape(base_id)}_detail_manual" value="{safe_detail_manual}" placeholder="输入具体位置，例如：收纳柜、电视柜" oninput="syncLocation('{escape(base_id)}')">
+              <input type="hidden" id="{escape(base_id)}" name="{escape(base_id)}" value="{safe_selected}">
+            </div>
+    """
+
+
+def _split_location_parts(location: str) -> tuple[str, str]:
+    if " - " in location:
+        area, detail = location.split(" - ", 1)
+        return area.strip(), detail.strip()
+    return location.strip(), ""
+
+
+def _split_location_string(value: str) -> list[str]:
+    import re
+
+    return [part.strip() for part in re.split(r"[,，、/;；\n]+", value) if part.strip()]
 
 
 @router.get("/health")
@@ -116,11 +223,10 @@ def nfc_low_stock(
     safe_item_id = escape(item_id)
     safe_item_name = escape(item.item_name)
     safe_note = escape(note)
-    safe_location = escape(location)
-    locations = sheets.item_locations(item_id)
-    location_options = "\n".join(
-        f'<option value="{escape(value)}">{escape(value)}</option>' for value in locations
-    )
+    location_picker = _location_picker_html("location", "位置", location)
+    source_location_picker = _location_picker_html("source_location", "搬运来源", "车库")
+    target_location_picker = _location_picker_html("target_location", "搬运目标", location)
+    detail_options_json = json.dumps(LOCATION_DETAIL_OPTIONS, ensure_ascii=False)
     html = f"""
     <!doctype html>
     <html lang="zh-CN">
@@ -172,6 +278,13 @@ def nfc_low_stock(
             font: inherit;
             box-sizing: border-box;
           }}
+          .location-picker {{
+            display: grid;
+            gap: 8px;
+          }}
+          .manual-location {{
+            display: none;
+          }}
           .actions {{
             display: grid;
             gap: 12px;
@@ -196,15 +309,9 @@ def nfc_low_stock(
           <h1>{safe_item_name}</h1>
           <p>选择这次扫描要记录什么。系统只会更新 Google Sheet，不会自动购买。</p>
           <form method="get" action="/nfc/{safe_item_id}/record">
-            <label for="location">位置</label>
-            <input id="location" name="location" list="locations" value="{safe_location}" placeholder="例如：主卧洗手间">
-            <datalist id="locations">
-              {location_options}
-            </datalist>
-            <label for="source_location">搬运来源</label>
-            <input id="source_location" name="source_location" list="locations" value="车库" placeholder="例如：车库">
-            <label for="target_location">搬运目标</label>
-            <input id="target_location" name="target_location" list="locations" value="{safe_location}" placeholder="例如：主卧洗手间">
+            {location_picker}
+            {source_location_picker}
+            {target_location_picker}
             <label for="note">备注</label>
             <textarea id="note" name="note" placeholder="例如：只剩最后一卷">{safe_note}</textarea>
             <div class="actions">
@@ -215,6 +322,49 @@ def nfc_low_stock(
               <button class="cancel" type="button" onclick="history.back()">取消</button>
             </div>
           </form>
+          <script>
+            const locationDetails = {detail_options_json};
+            function option(value, label, selected) {{
+              const selectedAttr = selected ? ' selected' : '';
+              return `<option value="${{value}}"${{selectedAttr}}>${{label}}</option>`;
+            }}
+            function setDetailOptions(baseId, area, previousValue) {{
+              const detailSelect = document.getElementById(baseId + '_detail_select');
+              const details = locationDetails[area] || [];
+              let html = option('', '不指定具体位置', previousValue === '');
+              const hasPrevious = details.includes(previousValue);
+              if (previousValue && !hasPrevious && previousValue !== '__manual__') {{
+                html += option('__manual__', '其他/新增具体位置', true);
+              }}
+              details.forEach((detail) => {{
+                html += option(detail, detail, detail === previousValue);
+              }});
+              if (!previousValue || hasPrevious || previousValue === '__manual__') {{
+                html += option('__manual__', '其他/新增具体位置', previousValue === '__manual__');
+              }}
+              detailSelect.innerHTML = html;
+            }}
+            function syncLocation(baseId) {{
+              const areaSelect = document.getElementById(baseId + '_area_select');
+              const areaManual = document.getElementById(baseId + '_area_manual');
+              const detailSelect = document.getElementById(baseId + '_detail_select');
+              const detailManual = document.getElementById(baseId + '_detail_manual');
+              const hidden = document.getElementById(baseId);
+              const isManualArea = areaSelect.value === '__manual__';
+              const area = isManualArea ? areaManual.value.trim() : areaSelect.value;
+              areaManual.style.display = isManualArea ? 'block' : 'none';
+              if (detailSelect.dataset.area !== area) {{
+                const previousDetail = detailSelect.value === '__manual__' ? '__manual__' : '';
+                setDetailOptions(baseId, area, previousDetail);
+                detailSelect.dataset.area = area;
+              }}
+              const isManualDetail = detailSelect.value === '__manual__';
+              detailManual.style.display = isManualDetail ? 'block' : 'none';
+              const detail = isManualDetail ? detailManual.value.trim() : detailSelect.value;
+              hidden.value = detail ? `${{area}} - ${{detail}}` : area;
+            }}
+            ['location', 'source_location', 'target_location'].forEach(syncLocation);
+          </script>
         </main>
       </body>
     </html>

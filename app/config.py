@@ -27,10 +27,15 @@ class Settings(BaseSettings):
     order_email_query: str = (
         '(subject:"order received" OR subject:"order confirmation" OR '
         'subject:"your order" OR subject:ordered) '
-        '-subject:shipped -subject:delivered -category:promotions newer_than:14d'
+        '-subject:shipped -subject:delivered -subject:substitution '
+        '-subject:substitutions -subject:executed -category:promotions newer_than:14d'
     )
     max_order_emails: int = 5
     duplicate_event_window_minutes: int = 10
+    household_locations: str = (
+        "车库,一层,二层餐厅,二层厨房,二层客卧,二层洗手间,"
+        "主卧,主卧洗手间,汤圆房间,汤圆洗手间,三层收纳柜"
+    )
 
     gemini_api_key: str = Field(default="", repr=False)
     gemini_model: str = "gemini-3.5-flash"
