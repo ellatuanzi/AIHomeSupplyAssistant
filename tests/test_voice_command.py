@@ -13,7 +13,9 @@ class FakeSheets:
     def get_inventory_items(self):
         return [
             InventoryItem(item_id="toilet_paper", item_name="Toilet Paper", urgency_default="中"),
+            InventoryItem(item_id="paper_towels", item_name="Paper Towels", urgency_default="中"),
             InventoryItem(item_id="body_lotion", item_name="Body Lotion", urgency_default="中"),
+            InventoryItem(item_id="kids_toothpaste", item_name="Kids Toothpaste", urgency_default="中"),
         ]
 
     def find_inventory_item(self, item_id):
@@ -61,6 +63,38 @@ def test_voice_command_handles_toilet_paper_mishearing(monkeypatch):
     assert result["status"] == "已记录"
     assert result["item_id"] == "toilet_paper"
     assert fake.low_stock_rows[0][3] == "Toilet Paper"
+
+
+def test_voice_command_handles_common_english_aliases(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("Tangyuan room moisturizer is low")
+
+    assert result["status"] == "已记录"
+    assert result["item_id"] == "body_lotion"
+    assert fake.low_stock_rows[0][3] == "Body Lotion"
+
+
+def test_voice_command_handles_common_replacement_words(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("二层厨房 kitchen paper 快没了")
+
+    assert result["status"] == "已记录"
+    assert result["action"] == "empty_stock"
+    assert result["item_id"] == "paper_towels"
+
+
+def test_voice_command_handles_brand_alias(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("Tom's 草莓牙膏低库存")
+
+    assert result["status"] == "已记录"
+    assert result["item_id"] == "kids_toothpaste"
 
 
 def test_voice_command_warns_when_item_is_not_matched(monkeypatch):
