@@ -46,6 +46,17 @@ COMMON_ITEM_ALIASES = {
         "kitchen paper",
         "bounty",
     ],
+    "napkin": [
+        "napkin",
+        "napkins",
+        "餐巾",
+        "餐巾纸",
+        "饭巾",
+        "饭巾纸",
+        "餐纸",
+        "paper napkin",
+        "paper napkins",
+    ],
     "trash_bags": [
         "垃圾袋",
         "垃圾带",

@@ -14,6 +14,7 @@ class FakeSheets:
         return [
             InventoryItem(item_id="toilet_paper", item_name="Toilet Paper", urgency_default="中"),
             InventoryItem(item_id="paper_towels", item_name="Paper Towels", urgency_default="中"),
+            InventoryItem(item_id="napkin", item_name="Napkin", urgency_default="中"),
             InventoryItem(item_id="body_lotion", item_name="Body Lotion", urgency_default="中"),
             InventoryItem(item_id="kids_toothpaste", item_name="Kids Toothpaste", urgency_default="中"),
         ]
@@ -85,6 +86,17 @@ def test_voice_command_handles_common_replacement_words(monkeypatch):
     assert result["status"] == "已记录"
     assert result["action"] == "empty_stock"
     assert result["item_id"] == "paper_towels"
+
+
+def test_voice_command_handles_napkin_alias(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("餐巾纸低库存")
+
+    assert result["status"] == "已记录"
+    assert result["item_id"] == "napkin"
+    assert fake.low_stock_rows[0][3] == "Napkin"
 
 
 def test_voice_command_handles_brand_alias(monkeypatch):

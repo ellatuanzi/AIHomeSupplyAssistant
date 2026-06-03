@@ -43,6 +43,18 @@ SAMPLE_INVENTORY = [
         "中",
         "尽量买 unscented",
     ],
+    [
+        "napkin",
+        "Napkin",
+        "纸品",
+        "",
+        "Costco, Amazon",
+        "二层餐厅",
+        "200 count",
+        "少于 20%",
+        "中",
+        "",
+    ],
 ]
 
 
