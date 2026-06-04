@@ -15,7 +15,7 @@ services:
       - key: RETAIL_SEARCH_MODE
         value: search_urls
       - key: GEMINI_MODEL
-        value: gemini-3.5-flash
+        value: gemini-2.0-flash
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
       - key: HSA_SHEET_NAME
@@ -31,7 +31,7 @@ services:
       - key: DEFAULT_SHIPPING_ADDRESS
         sync: false
       - key: ORDER_EMAIL_QUERY
-        value: (subject:"order received" OR subject:"order confirmation" OR subject:"your order" OR subject:ordered) -subject:shipped -subject:delivered -category:promotions newer_than:14d
+        value: (subject:"order received" OR subject:"order confirmation" OR subject:"your order" OR subject:ordered) -subject:shipped -subject:delivered -subject:substitution -subject:substitutions -subject:executed -category:promotions newer_than:14d
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_TOKEN_JSON
@@ -65,7 +65,7 @@ services:
       - key: RETAIL_SEARCH_MODE
         value: search_urls
       - key: GEMINI_MODEL
-        value: gemini-3.5-flash
+        value: gemini-2.0-flash
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
       - key: HSA_SHEET_NAME
@@ -81,7 +81,7 @@ services:
       - key: DEFAULT_SHIPPING_ADDRESS
         sync: false
       - key: ORDER_EMAIL_QUERY
-        value: (subject:"order received" OR subject:"order confirmation" OR subject:"your order" OR subject:ordered) -subject:shipped -subject:delivered -category:promotions newer_than:14d
+        value: (subject:"order received" OR subject:"order confirmation" OR subject:"your order" OR subject:ordered) -subject:shipped -subject:delivered -subject:substitution -subject:substitutions -subject:executed -category:promotions newer_than:14d
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_TOKEN_JSON

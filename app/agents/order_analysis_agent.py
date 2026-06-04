@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
-
-from openai import OpenAIError
 
 from app.models.inventory import InventoryItem
 from app.services.gmail import GmailService
@@ -93,10 +90,6 @@ class OrderAnalysisAgent:
     def _extract_orders(
         self, email: dict[str, str], inventory: list[InventoryItem]
     ) -> list[dict[str, Any]]:
-        client = self.recommender.client
-        if not client:
-            return self._heuristic_extract_orders(email, inventory)
-
         prompt = {
             "instruction": "只从 order received、ordered、order confirmation 这类下单确认邮件正文中提取实际商品行。邮件标题不是商品标题；商品信息通常在正文中，可能包含商品链接文本、Quantity 和价格。发货、送达、促销、广告、deal、sale 邮件必须返回空数组。每件商品输出一条。",
             "email": {
@@ -122,21 +115,13 @@ class OrderAnalysisAgent:
                 }
             ],
         }
-        try:
-            response = client.chat.completions.create(
-                model=self.recommender.model,
-                messages=[
-                    {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
-                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-                ],
-                temperature=0.1,
-            )
-            parsed = json.loads(response.choices[0].message.content or "[]")
-            if isinstance(parsed, dict):
-                return [parsed] if parsed.get("is_order", True) else []
+        fallback = self._heuristic_extract_orders(email, inventory)
+        parsed = self.recommender.generate_json(prompt, fallback=fallback, temperature=0.1)
+        if isinstance(parsed, dict):
+            return [parsed] if parsed.get("is_order", True) else []
+        if isinstance(parsed, list):
             return [item for item in parsed if item]
-        except (OpenAIError, json.JSONDecodeError):
-            return self._heuristic_extract_orders(email, inventory)
+        return fallback
 
     def _analyze_order(
         self,
@@ -144,10 +129,6 @@ class OrderAnalysisAgent:
         order: dict[str, Any],
         item: InventoryItem | None,
     ) -> dict[str, Any]:
-        client = self.recommender.client
-        if not client:
-            return self._heuristic_analysis(order, item)
-
         matching_history = [
             row
             for row in self.sheets.purchase_history()
@@ -175,18 +156,9 @@ class OrderAnalysisAgent:
                 "summary": "中文一句话",
             },
         }
-        try:
-            response = client.chat.completions.create(
-                model=self.recommender.model,
-                messages=[
-                    {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
-                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
-                ],
-                temperature=0.2,
-            )
-            return json.loads(response.choices[0].message.content or "{}")
-        except (OpenAIError, json.JSONDecodeError):
-            return self._heuristic_analysis(order, item)
+        fallback = self._heuristic_analysis(order, item)
+        parsed = self.recommender.generate_json(prompt, fallback=fallback, temperature=0.2)
+        return parsed if isinstance(parsed, dict) else fallback
 
     def _match_inventory_item(
         self, order: dict[str, Any], inventory: list[InventoryItem]
@@ -332,7 +304,7 @@ class OrderAnalysisAgent:
                 "address_category",
                 self._address_category(order.get("shipping_address", "")),
             ),
-            "price_judgment": "AI 价格分析暂不可用，无法做细致价格比较；已记录本次价格用于后续对比。请确认 Render 已配置 GEMINI_API_KEY。",
+            "price_judgment": "AI 价格分析暂不可用，无法做细致价格比较；已记录本次价格用于后续对比。",
             "restock_prediction": f"已把 {item_name} 写入购买历史，后续可结合低库存记录判断补货周期。",
             "health_or_fit_note": "尚未做成分或适用性判断；建议人工确认是否符合家庭偏好。",
             "better_suggestion": "后续可比较单位价格、规格和历史满意度后给出更好建议。",

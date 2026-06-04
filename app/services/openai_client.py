@@ -76,7 +76,41 @@ class OpenAIRecommendationService:
         except (OpenAIError, json.JSONDecodeError):
             return self._fallback_choice(item, events, options)
 
+    def generate_json(
+        self,
+        prompt: dict[str, Any],
+        fallback: Any,
+        temperature: float = 0.2,
+    ) -> Any:
+        if self.gemini_api_key:
+            try:
+                return self._generate_json_with_gemini(prompt, temperature=temperature)
+            except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
+                pass
+
+        if not self.client:
+            return fallback
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "只输出 JSON，不要 Markdown。"},
+                    {"role": "user", "content": json.dumps(prompt, ensure_ascii=False)},
+                ],
+                temperature=temperature,
+            )
+            return json.loads(response.choices[0].message.content or "{}")
+        except (OpenAIError, json.JSONDecodeError):
+            return fallback
+
     def _choose_with_gemini(self, prompt: dict[str, Any]) -> dict[str, Any]:
+        parsed = self._generate_json_with_gemini(prompt, temperature=0.2)
+        if not isinstance(parsed, dict):
+            raise ValueError("Gemini response was not a JSON object.")
+        return parsed
+
+    def _generate_json_with_gemini(self, prompt: dict[str, Any], temperature: float = 0.2) -> Any:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/"
             f"models/{self.gemini_model}:generateContent"
@@ -98,7 +132,7 @@ class OpenAIRecommendationService:
                     }
                 ],
                 "generationConfig": {
-                    "temperature": 0.2,
+                    "temperature": temperature,
                     "responseMimeType": "application/json",
                 },
             },
@@ -107,7 +141,7 @@ class OpenAIRecommendationService:
         response.raise_for_status()
         data = response.json()
         text = data["candidates"][0]["content"]["parts"][0]["text"]
-        return _parse_json_object(text)
+        return _parse_json(text)
 
     def _fallback_choice(
         self,
@@ -134,11 +168,15 @@ class OpenAIRecommendationService:
         return max(urgencies, key=lambda value: order.get(value, 0), default="中")
 
 
-def _parse_json_object(content: str) -> dict[str, Any]:
+def _parse_json(content: str) -> Any:
     cleaned = content.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
-    parsed = json.loads(cleaned)
+    return json.loads(cleaned)
+
+
+def _parse_json_object(content: str) -> dict[str, Any]:
+    parsed = _parse_json(content)
     if not isinstance(parsed, dict):
         raise ValueError("Gemini response was not a JSON object.")
     return parsed
