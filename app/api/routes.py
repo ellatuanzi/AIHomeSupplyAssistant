@@ -165,6 +165,11 @@ class VoiceCommandRequest(BaseModel):
     dry_run: bool = False
 
 
+class ChatMessageRequest(BaseModel):
+    message: str
+    dry_run: bool = False
+
+
 def sheets_service() -> GoogleSheetsService:
     try:
         return GoogleSheetsService()
@@ -501,6 +506,196 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
     })
 
 
+def _task_summary(tasks: list[dict[str, Any]], limit: int = 8) -> str:
+    if not tasks:
+        return "当前没有待办任务。"
+    lines = []
+    for task in tasks[:limit]:
+        item_name = task.get("商品名称", "未命名商品")
+        task_type = task.get("任务类型", "待办")
+        source = task.get("来源位置", "")
+        target = task.get("目标位置", "")
+        route = f"{source} -> {target}" if source or target else ""
+        lines.append(" - ".join(part for part in [task_type, item_name, route] if part))
+    if len(tasks) > limit:
+        lines.append(f"还有 {len(tasks) - limit} 个待办未显示。")
+    return "\n".join(lines)
+
+
+def _event_summary(events: list[dict[str, Any]], limit: int = 8) -> str:
+    if not events:
+        return "当前没有未处理的低库存记录。"
+    lines = []
+    for event in events[:limit]:
+        item_name = event.get("商品名称", "未命名商品")
+        location = event.get("位置", "")
+        urgency = event.get("紧急度", "")
+        lines.append(" - ".join(part for part in [item_name, location, urgency] if part))
+    if len(events) > limit:
+        lines.append(f"还有 {len(events) - limit} 条低库存记录未显示。")
+    return "\n".join(lines)
+
+
+def _recommendation_summary(recommendations: list[dict[str, Any]], limit: int = 8) -> str:
+    pending = [
+        row
+        for row in recommendations
+        if row.get("补货状态", "").strip() not in {"已下单", "已购买", "已处理", "跳过"}
+    ]
+    if not pending:
+        return "当前没有待确认的补货推荐。"
+    lines = []
+    for rec in pending[:limit]:
+        item_name = rec.get("商品名称", "未命名商品")
+        product = rec.get("推荐商品", "")
+        retailer = rec.get("推荐店铺", "")
+        price = rec.get("预估价格", "")
+        lines.append(" - ".join(part for part in [item_name, product, retailer, price] if part))
+    if len(pending) > limit:
+        lines.append(f"还有 {len(pending) - limit} 条推荐未显示。")
+    return "\n".join(lines)
+
+
+def _inventory_answer(message: str, sheets: GoogleSheetsService) -> str | None:
+    item = _match_voice_item(message, sheets.get_inventory_items())
+    if not item:
+        return None
+    lowered = message.lower()
+    if any(token in message for token in ["哪里", "位置", "放哪", "放在"]) or "where" in lowered:
+        locations = sheets.item_locations(item.item_id)
+        if locations:
+            return f"{item.item_name} 记录的位置：{', '.join(locations)}。"
+        return f"{item.item_name} 暂时没有记录具体位置。"
+    if any(token in message for token in ["偏好", "品牌", "店铺", "规格", "阈值"]) or any(
+        token in lowered for token in ["brand", "store", "retailer", "threshold", "size"]
+    ):
+        details = [
+            f"商品：{item.item_name}",
+            f"分类：{item.category or '未填'}",
+            f"偏好品牌：{item.preferred_brand or '未填'}",
+            f"偏好店铺：{item.preferred_retailer or '未填'}",
+            f"常购规格：{item.typical_quantity or '未填'}",
+            f"补货阈值：{item.reorder_threshold or '未填'}",
+            f"默认紧急度：{item.urgency_default or '中'}",
+        ]
+        return "\n".join(details)
+    return None
+
+
+def _is_update_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(
+        token in lowered
+        for token in [
+            "低库存",
+            "没了",
+            "没有",
+            "空了",
+            "用完",
+            "out of",
+            "empty",
+            "low stock",
+            "任务",
+            "todo",
+            "to do",
+            "待办",
+            "拿到",
+            "搬到",
+            "移到",
+            "完成",
+            "done",
+            "finished",
+        ]
+    )
+
+
+def _is_read_query(message: str) -> bool:
+    lowered = message.lower()
+    return any(token in message for token in ["哪些", "什么", "现在", "当前", "查看", "查询", "列出"]) or any(
+        token in lowered for token in ["what", "which", "show", "list", "where", "?"]
+    )
+
+
+def _handle_chat_message(message: str, dry_run: bool = False) -> dict[str, Any]:
+    text = message.strip()
+    if not text:
+        return {"ok": False, "message": "请输入问题或指令。", "updated_google_sheet": False}
+
+    try:
+        sheets = sheets_service()
+        if any(token in text.lower() for token in ["todo", "to do", "task"]) or any(
+            token in text for token in ["待办", "任务", "要做"]
+        ) and _is_read_query(text):
+            return {
+                "ok": True,
+                "message": _task_summary(sheets.pending_tasks()),
+                "updated_google_sheet": False,
+            }
+        if (
+            any(token in text for token in ["低库存", "缺货", "没处理"])
+            or "low stock" in text.lower()
+        ) and _is_read_query(text):
+            return {
+                "ok": True,
+                "message": _event_summary(sheets.unresolved_events()),
+                "updated_google_sheet": False,
+            }
+        if (
+            any(token in text for token in ["推荐", "要买", "补货"])
+            or any(
+            token in text.lower() for token in ["recommend", "buy", "restock"]
+            )
+        ) and _is_read_query(text):
+            return {
+                "ok": True,
+                "message": _recommendation_summary(sheets.recommendations()),
+                "updated_google_sheet": False,
+            }
+        inventory_answer = _inventory_answer(text, sheets)
+        if inventory_answer:
+            return {"ok": True, "message": inventory_answer, "updated_google_sheet": False}
+        if _is_update_message(text):
+            result = _handle_voice_command(text, dry_run=dry_run)
+            return {
+                "ok": result.get("ok", False),
+                "message": result.get("message", "已处理。"),
+                "updated_google_sheet": result.get("updated_google_sheet", False),
+                "action": result.get("action", ""),
+                "item_name": result.get("item_name", ""),
+                "location": result.get("location", ""),
+            }
+        return {
+            "ok": True,
+            "message": (
+                "我可以回答：待办列表、低库存记录、补货推荐、商品位置/偏好；"
+                "也可以执行：记录低库存、创建待办、完成待办。"
+            ),
+            "updated_google_sheet": False,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "message": f"无法读取 Google Sheet：{exc}",
+            "updated_google_sheet": False,
+        }
+
+
+def _chat_state() -> dict[str, Any]:
+    sheets = sheets_service()
+    tasks = sheets.pending_tasks()
+    events = sheets.unresolved_events()
+    recommendations = [
+        row
+        for row in sheets.recommendations()
+        if row.get("补货状态", "").strip() not in {"已下单", "已购买", "已处理", "跳过"}
+    ]
+    return {
+        "pending_tasks": tasks,
+        "unresolved_events": events,
+        "pending_recommendations": recommendations,
+    }
+
+
 @router.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -533,6 +728,230 @@ def add_item_location(
         raise HTTPException(status_code=404, detail=f"找不到商品ID：{item_id}")
     sheets.ensure_item_location(item.item_id, item.item_name, location, "API", note)
     return {"status": "已记录", "item_id": item.item_id, "location": location}
+
+
+@router.get("/chat", response_class=HTMLResponse)
+def chat_entry() -> HTMLResponse:
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>家庭补货 Chat</title>
+            <style>
+              :root { color-scheme: light; }
+              body {
+                margin: 0;
+                background: #f5f5f1;
+                color: #1f2933;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              }
+              main {
+                max-width: 760px;
+                margin: 0 auto;
+                padding: 20px;
+              }
+              h1 {
+                font-size: 28px;
+                margin: 10px 0 4px;
+              }
+              .subtle {
+                margin: 0 0 18px;
+                color: #667085;
+                line-height: 1.45;
+              }
+              .panel {
+                background: #ffffff;
+                border: 1px solid #d7d8d2;
+                border-radius: 8px;
+                padding: 14px;
+                margin-bottom: 14px;
+              }
+              .panel h2 {
+                margin: 0 0 10px;
+                font-size: 18px;
+              }
+              .task {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 8px;
+                padding: 10px 0;
+                border-top: 1px solid #ecece7;
+              }
+              .task:first-of-type { border-top: 0; }
+              .task-title { font-weight: 650; }
+              .task-meta { color: #667085; font-size: 14px; margin-top: 2px; }
+              .badge {
+                align-self: start;
+                border: 1px solid #c8d1ea;
+                background: #eef4ff;
+                border-radius: 999px;
+                padding: 3px 9px;
+                font-size: 13px;
+                color: #344054;
+              }
+              #messages {
+                min-height: 220px;
+                max-height: 48vh;
+                overflow: auto;
+                display: grid;
+                gap: 10px;
+              }
+              .msg {
+                white-space: pre-wrap;
+                line-height: 1.45;
+                padding: 10px 12px;
+                border-radius: 8px;
+                max-width: 88%;
+              }
+              .user {
+                justify-self: end;
+                background: #2563eb;
+                color: white;
+              }
+              .assistant {
+                justify-self: start;
+                background: #f1f5f9;
+                color: #1f2933;
+              }
+              form {
+                display: grid;
+                grid-template-columns: 1fr auto;
+                gap: 8px;
+                margin-top: 12px;
+              }
+              input {
+                min-height: 46px;
+                border: 1px solid #cbd2d9;
+                border-radius: 8px;
+                padding: 0 12px;
+                font: inherit;
+              }
+              button {
+                min-height: 46px;
+                border: 0;
+                border-radius: 8px;
+                background: #111827;
+                color: white;
+                font-weight: 700;
+                padding: 0 16px;
+              }
+              .quick {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-top: 10px;
+              }
+              .quick button {
+                min-height: 34px;
+                background: #e5e7eb;
+                color: #111827;
+                font-size: 14px;
+              }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>家庭补货 Chat</h1>
+              <p class="subtle">可以查询 Google Sheet，也可以直接更新低库存和待办。系统不会自动购买。</p>
+              <section class="panel">
+                <h2>待办列表</h2>
+                <div id="tasks">加载中...</div>
+              </section>
+              <section class="panel">
+                <h2>Chat</h2>
+                <div id="messages">
+                  <div class="msg assistant">可以问：“现在有哪些待办？”、“身体乳放在哪里？”；也可以说：“主卧洗手间手纸低库存”、“把车库的手纸拿到主卧洗手间”。</div>
+                </div>
+                <div class="quick">
+                  <button type="button" data-text="现在有哪些待办？">待办</button>
+                  <button type="button" data-text="现在有哪些低库存？">低库存</button>
+                  <button type="button" data-text="现在有什么要买？">要买什么</button>
+                </div>
+                <form id="chat-form">
+                  <input id="message" name="message" autocomplete="off" placeholder="输入问题或指令">
+                  <button type="submit">发送</button>
+                </form>
+              </section>
+            </main>
+            <script>
+              const tasksEl = document.getElementById('tasks');
+              const messagesEl = document.getElementById('messages');
+              const form = document.getElementById('chat-form');
+              const input = document.getElementById('message');
+
+              function addMessage(role, text) {
+                const div = document.createElement('div');
+                div.className = `msg ${role}`;
+                div.textContent = text;
+                messagesEl.appendChild(div);
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
+
+              function renderTasks(tasks) {
+                if (!tasks.length) {
+                  tasksEl.textContent = '当前没有待办任务。';
+                  return;
+                }
+                tasksEl.innerHTML = tasks.slice(0, 8).map((task) => {
+                  const item = task['商品名称'] || '未命名商品';
+                  const type = task['任务类型'] || '待办';
+                  const source = task['来源位置'] || '';
+                  const target = task['目标位置'] || '';
+                  const route = [source, target].filter(Boolean).join(' -> ');
+                  return `<div class="task"><div><div class="task-title">${item}</div><div class="task-meta">${route || '未指定位置'}</div></div><div class="badge">${type}</div></div>`;
+                }).join('');
+              }
+
+              async function refreshState() {
+                try {
+                  const response = await fetch('/chat/state');
+                  const data = await response.json();
+                  renderTasks(data.pending_tasks || []);
+                } catch (error) {
+                  tasksEl.textContent = `无法读取待办：${error}`;
+                }
+              }
+
+              async function sendMessage(text) {
+                if (!text.trim()) return;
+                addMessage('user', text);
+                input.value = '';
+                const response = await fetch('/chat/message', {
+                  method: 'POST',
+                  headers: {'Content-Type': 'application/json'},
+                  body: JSON.stringify({message: text})
+                });
+                const data = await response.json();
+                addMessage('assistant', data.message || '没有返回内容。');
+                if (data.updated_google_sheet) await refreshState();
+              }
+
+              form.addEventListener('submit', (event) => {
+                event.preventDefault();
+                sendMessage(input.value);
+              });
+              document.querySelectorAll('.quick button').forEach((button) => {
+                button.addEventListener('click', () => sendMessage(button.dataset.text));
+              });
+              refreshState();
+            </script>
+          </body>
+        </html>
+        """
+    )
+
+
+@router.get("/chat/state")
+def chat_state() -> dict[str, Any]:
+    return _chat_state()
+
+
+@router.post("/chat/message")
+def chat_message(payload: ChatMessageRequest) -> dict[str, Any]:
+    return _handle_chat_message(payload.message, dry_run=payload.dry_run)
 
 
 @router.get("/voice", response_class=HTMLResponse)
