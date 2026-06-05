@@ -13,6 +13,15 @@ def test_receipt_upload_page_has_camera_input():
     assert 'capture="environment"' in response.body.decode("utf-8")
 
 
+def test_chat_page_includes_receipt_upload():
+    response = routes.chat_entry()
+    html = response.body.decode("utf-8")
+
+    assert "拍照补录" in html
+    assert "receipt-form" in html
+    assert "fetch('/receipts/upload'" in html
+
+
 def test_receipt_image_extracts_with_gemini(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):

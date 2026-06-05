@@ -1072,6 +1072,14 @@ def chat_entry() -> HTMLResponse:
                 padding: 0 12px;
                 font: inherit;
               }
+              input[type=file] {
+                box-sizing: border-box;
+                width: 100%;
+                min-height: 0;
+                padding: 14px;
+                border-style: dashed;
+                background: #fbfbf8;
+              }
               button {
                 min-height: 46px;
                 border: 0;
@@ -1092,6 +1100,17 @@ def chat_entry() -> HTMLResponse:
                 background: #e5e7eb;
                 color: #111827;
                 font-size: 14px;
+              }
+              .upload-form {
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 10px;
+              }
+              .upload-result {
+                margin-top: 10px;
+                color: #344054;
+                line-height: 1.45;
+                white-space: pre-wrap;
               }
             </style>
           </head>
@@ -1118,12 +1137,25 @@ def chat_entry() -> HTMLResponse:
                   <button type="submit">发送</button>
                 </form>
               </section>
+              <section class="panel">
+                <h2>拍照补录</h2>
+                <p class="subtle">邮件没读准或 delivered 订单漏掉时，可以在这里拍小票、订单截图或 delivered 页面截图。</p>
+                <form id="receipt-form" class="upload-form">
+                  <input id="receipt-file" name="file" type="file" accept="image/*,.pdf,.txt" capture="environment" required>
+                  <button id="receipt-submit" type="submit">上传并写入 Google Sheet</button>
+                </form>
+                <div id="receipt-result" class="upload-result"></div>
+              </section>
             </main>
             <script>
               const tasksEl = document.getElementById('tasks');
               const messagesEl = document.getElementById('messages');
               const form = document.getElementById('chat-form');
               const input = document.getElementById('message');
+              const receiptForm = document.getElementById('receipt-form');
+              const receiptFile = document.getElementById('receipt-file');
+              const receiptSubmit = document.getElementById('receipt-submit');
+              const receiptResult = document.getElementById('receipt-result');
 
               function addMessage(role, text) {
                 const div = document.createElement('div');
@@ -1178,6 +1210,28 @@ def chat_entry() -> HTMLResponse:
               });
               document.querySelectorAll('.quick button').forEach((button) => {
                 button.addEventListener('click', () => sendMessage(button.dataset.text));
+              });
+              receiptForm.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const file = receiptFile.files[0];
+                if (!file) return;
+                receiptSubmit.disabled = true;
+                receiptSubmit.textContent = '正在识别...';
+                receiptResult.textContent = '上传中，请稍等。';
+                try {
+                  const body = new FormData();
+                  body.append('file', file);
+                  const response = await fetch('/receipts/upload', { method: 'POST', body });
+                  const data = await response.json();
+                  if (!response.ok) throw new Error(data.detail || '上传失败');
+                  receiptResult.textContent = `完成：已写入 ${data.receipt_items_created} 条记录。\\n文件：${data.filename || file.name}`;
+                  await refreshState();
+                } catch (error) {
+                  receiptResult.textContent = `没有成功写入。${error.message || error}`;
+                } finally {
+                  receiptSubmit.disabled = false;
+                  receiptSubmit.textContent = '上传并写入 Google Sheet';
+                }
               });
               refreshState();
             </script>
