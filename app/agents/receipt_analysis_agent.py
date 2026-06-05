@@ -64,27 +64,33 @@ class ReceiptAnalysisAgent:
         data: bytes,
         inventory: list[InventoryItem],
     ) -> list[dict[str, Any]]:
+        text = _decode_text(data)
         if content_type.startswith("image/") and self.recommender.gemini_api_key:
             try:
                 return self._extract_with_gemini(filename, content_type, data, inventory)
             except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
                 pass
 
-        client = self.recommender.client
-        if client:
-            return self._extract_with_openai(filename, content_type, data, inventory)
+        if not content_type.startswith("image/") and self.recommender.gemini_api_key:
+            fallback = [self._heuristic_receipt_item(filename, text, inventory)]
+            prompt = self._receipt_extraction_prompt(filename, content_type, inventory)
+            prompt["text"] = text[:12000]
+            result = self.recommender.generate_json(prompt, fallback=fallback, temperature=0.1)
+            if isinstance(result, list):
+                return result
+            if isinstance(result, dict):
+                return [result]
+            return fallback
 
-        text = _decode_text(data)
         return [self._heuristic_receipt_item(filename, text, inventory)]
 
-    def _extract_with_openai(
+    def _receipt_extraction_prompt(
         self,
         filename: str,
         content_type: str,
-        data: bytes,
         inventory: list[InventoryItem],
-    ) -> list[dict[str, Any]]:
-        prompt = {
+    ) -> dict[str, Any]:
+        return {
             "instruction": "从购物小票中提取家庭日用品购买记录。商品名/品牌/店铺可保留英文，分析字段用中文。若有多件日用品，输出多条。",
             "filename": filename,
             "content_type": content_type,
@@ -103,6 +109,15 @@ class ReceiptAnalysisAgent:
                 }
             ],
         }
+
+    def _extract_with_openai(
+        self,
+        filename: str,
+        content_type: str,
+        data: bytes,
+        inventory: list[InventoryItem],
+    ) -> list[dict[str, Any]]:
+        prompt = self._receipt_extraction_prompt(filename, content_type, inventory)
         content: list[dict[str, Any]] = [
             {"type": "text", "text": json.dumps(prompt, ensure_ascii=False)}
         ]

@@ -77,3 +77,41 @@ def test_receipt_image_extracts_with_gemini(monkeypatch):
     assert result[0]["price"] == "$12.99"
     assert captured["params"]["key"] == "gemini-key"
     assert captured["json"]["contents"][0]["parts"][1]["inlineData"]["mimeType"] == "image/jpeg"
+
+
+def test_receipt_image_does_not_fallback_to_openai_when_gemini_fails(monkeypatch):
+    class FakeOpenAIClient:
+        class Chat:
+            class Completions:
+                def create(self, *args, **kwargs):
+                    raise AssertionError("receipt image upload should not call OpenAI fallback")
+
+            completions = Completions()
+
+        chat = Chat()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            raise receipt_analysis_agent.requests.RequestException("gemini temporarily unavailable")
+
+    def fake_post(url, params, json, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr(receipt_analysis_agent.requests, "post", fake_post)
+
+    recommender = SimpleNamespace(
+        gemini_api_key="gemini-key",
+        gemini_model="gemini-2.0-flash",
+        client=FakeOpenAIClient(),
+    )
+    agent = ReceiptAnalysisAgent(sheets=SimpleNamespace(), recommender=recommender)
+
+    result = agent._extract_receipt_items(
+        "target_receipt.jpg",
+        "image/jpeg",
+        b"fake-image",
+        [],
+    )
+
+    assert result[0]["item_name"] == "未匹配小票商品"
+    assert result[0]["product_title"] == "target_receipt.jpg"
