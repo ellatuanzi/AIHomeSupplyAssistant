@@ -174,7 +174,13 @@ class ReceiptAnalysisAgent:
         inventory: list[InventoryItem],
     ) -> dict[str, Any]:
         return {
-            "instruction": "从购物小票中提取家庭日用品购买记录。商品名/品牌/店铺可保留英文，分析字段用中文。若有多件日用品，输出多条。",
+            "instruction": (
+                "从购物小票、订单截图或 delivered/order 页面截图中提取所有可见的已购买商品。"
+                "不要只提取家庭日用品；食品、零食、冷冻食品、个人护理用品等已购买商品都要提取。"
+                "每一个可见商品单独输出一条。商品名/品牌/店铺可保留英文，分析字段用中文。"
+                "忽略 Sponsored/广告/推荐商品。若有 Replacement for 区块，只把实际被替换后的已购买商品作为主商品；"
+                "被替换掉的原商品不要作为单独购买商品写入。"
+            ),
             "filename": filename,
             "content_type": content_type,
             "inventory_items": [item.model_dump() for item in inventory],
@@ -235,9 +241,14 @@ class ReceiptAnalysisAgent:
     ) -> list[dict[str, Any]]:
         prompt = {
             "instruction": (
-                "从手机拍摄的购物小票、订单截图、delivery/order 页面截图中提取家庭日用品购买记录。"
-                "商品名/品牌/店铺可保留英文，分析字段用中文。若有多件日用品，输出多条。"
-                "忽略广告、推荐商品、shipping/delivered 状态文字本身，只提取真正购买的商品。"
+                "从手机拍摄的购物小票、订单截图、delivery/order 页面截图中提取所有可见的已购买商品。"
+                "不要只提取家庭日用品；食品、零食、冷冻食品、个人护理用品等已购买商品都要提取。"
+                "每一个可见商品单独输出一条，包含 product_title、quantity、price。"
+                "如果截图是滚动页面的一部分，只提取这一张截图中可见的商品；不要凭空补全不可见商品。"
+                "忽略 Sponsored/广告/推荐商品、搜索栏、导航栏、购物车图标、shipping/delivered 状态文字本身。"
+                "若有 Replacement for 区块，只把实际被替换后的已购买商品作为主商品；"
+                "被替换掉的原商品不要作为单独购买商品写入。"
+                "商品名/品牌/店铺可保留英文，分析字段用中文。"
             ),
             "filename": filename,
             "content_type": content_type,

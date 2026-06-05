@@ -81,6 +81,11 @@ def test_receipt_image_extracts_with_gemini(monkeypatch):
     assert result[0]["price"] == "$12.99"
     assert captured["params"]["key"] == "gemini-key"
     assert captured["json"]["contents"][0]["parts"][1]["inlineData"]["mimeType"] == "image/jpeg"
+    prompt_text = captured["json"]["contents"][0]["parts"][0]["text"]
+    assert "所有可见的已购买商品" in prompt_text
+    assert "不要只提取家庭日用品" in prompt_text
+    assert "Sponsored" in prompt_text
+    assert "Replacement for" in prompt_text
 
 
 def test_receipt_image_does_not_fallback_to_openai_when_gemini_fails(monkeypatch):

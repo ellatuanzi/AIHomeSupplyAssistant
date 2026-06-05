@@ -1229,10 +1229,14 @@ def chat_entry() -> HTMLResponse:
                   const data = await response.json();
                   if (!response.ok) throw new Error(data.detail || '上传失败');
                   const status = data.extraction_status || {};
+                  const fileLines = (status.file_statuses || []).map((fileStatus) =>
+                    `${fileStatus.filename || '文件'}：${fileStatus.valid_items || 0} 条`
+                  );
                   const details = [
                     `完成：已写入 ${data.receipt_items_created} 条记录。`,
                     `文件数：${data.files_uploaded || files.length}`,
                     `去重：${status.duplicates_removed || 0} 条`,
+                    fileLines.length ? `文件明细：\\n${fileLines.join('\\n')}` : '',
                     data.message ? `识别状态：${data.message}` : '',
                     status.error ? `错误：${status.error}` : '',
                     status.model ? `模型：${status.model}` : ''
@@ -1885,10 +1889,14 @@ def receipt_upload_entry() -> HTMLResponse:
                   }
                   result.className = 'ok';
                   const status = data.extraction_status || {};
+                  const fileLines = (status.file_statuses || []).map((fileStatus) =>
+                    `${fileStatus.filename || '文件'}：${fileStatus.valid_items || 0} 条`
+                  );
                   const details = [
                     `完成：已写入 ${data.receipt_items_created} 条记录。`,
                     `文件数：${data.files_uploaded || files.length}`,
                     `去重：${status.duplicates_removed || 0} 条`,
+                    fileLines.length ? `文件明细：\\n${fileLines.join('\\n')}` : '',
                     data.message ? `识别状态：${data.message}` : '',
                     status.error ? `错误：${status.error}` : '',
                     status.model ? `模型：${status.model}` : ''
