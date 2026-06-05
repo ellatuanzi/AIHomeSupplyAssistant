@@ -5,8 +5,11 @@ import json
 import re
 from typing import Any
 
+import requests
+
 from app.models.inventory import InventoryItem
 from app.agents.order_analysis_agent import _order_insight_row, _purchase_history_row
+from app.config import get_settings
 from app.services.google_sheets import GoogleSheetsService
 from app.services.hsa_tracker import HsaTrackerService
 from app.services.openai_client import OpenAIRecommendationService
@@ -61,6 +64,12 @@ class ReceiptAnalysisAgent:
         data: bytes,
         inventory: list[InventoryItem],
     ) -> list[dict[str, Any]]:
+        if content_type.startswith("image/") and self.recommender.gemini_api_key:
+            try:
+                return self._extract_with_gemini(filename, content_type, data, inventory)
+            except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
+                pass
+
         client = self.recommender.client
         if client:
             return self._extract_with_openai(filename, content_type, data, inventory)
@@ -117,6 +126,76 @@ class ReceiptAnalysisAgent:
             temperature=0.1,
         )
         parsed = json.loads(response.choices[0].message.content or "[]")
+        return parsed if isinstance(parsed, list) else [parsed]
+
+    def _extract_with_gemini(
+        self,
+        filename: str,
+        content_type: str,
+        data: bytes,
+        inventory: list[InventoryItem],
+    ) -> list[dict[str, Any]]:
+        prompt = {
+            "instruction": (
+                "从手机拍摄的购物小票、订单截图、delivery/order 页面截图中提取家庭日用品购买记录。"
+                "商品名/品牌/店铺可保留英文，分析字段用中文。若有多件日用品，输出多条。"
+                "忽略广告、推荐商品、shipping/delivered 状态文字本身，只提取真正购买的商品。"
+            ),
+            "filename": filename,
+            "content_type": content_type,
+            "inventory_items": [item.model_dump() for item in inventory],
+            "schema": [
+                {
+                    "retailer": "string",
+                    "item_name": "string",
+                    "item_id": "string if matched else empty",
+                    "brand": "string",
+                    "product_title": "string",
+                    "quantity": "string",
+                    "price": "string",
+                    "shipping_address": "string if visible",
+                    "order_link": "",
+                }
+            ],
+        }
+        encoded = base64.b64encode(data).decode("utf-8")
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{self.recommender.gemini_model}:generateContent"
+        )
+        response = requests.post(
+            url,
+            params={"key": self.recommender.gemini_api_key},
+            json={
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": (
+                                    "只输出 JSON array，不要 Markdown。\n"
+                                    + json.dumps(prompt, ensure_ascii=False)
+                                )
+                            },
+                            {
+                                "inlineData": {
+                                    "mimeType": content_type,
+                                    "data": encoded,
+                                }
+                            },
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=get_settings().gemini_timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        text = payload["candidates"][0]["content"]["parts"][0]["text"]
+        parsed = _parse_json(text)
         return parsed if isinstance(parsed, list) else [parsed]
 
     def _analyze_receipt_item(
@@ -268,6 +347,13 @@ class ReceiptAnalysisAgent:
 
 def _decode_text(data: bytes) -> str:
     return data.decode("utf-8", errors="ignore")
+
+
+def _parse_json(content: str) -> Any:
+    cleaned = content.strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    return json.loads(cleaned)
 
 
 def _normalize_address(value: str) -> str:

@@ -1696,6 +1696,137 @@ def run_order_analysis_agent() -> dict[str, object]:
     return {"status": "完成", "order_insights_created": len(insights)}
 
 
+@router.get("/receipts", response_class=HTMLResponse)
+def receipt_upload_entry() -> HTMLResponse:
+    return HTMLResponse(
+        """
+        <!doctype html>
+        <html lang="zh-CN">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>上传小票/订单截图</title>
+            <style>
+              :root { color-scheme: light; }
+              body {
+                margin: 0;
+                background: #f6f6f2;
+                color: #1f2933;
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+              }
+              main {
+                max-width: 560px;
+                margin: 0 auto;
+                padding: 22px;
+              }
+              h1 {
+                font-size: 28px;
+                margin: 14px 0 8px;
+              }
+              p {
+                color: #52606d;
+                line-height: 1.5;
+              }
+              .panel {
+                background: white;
+                border: 1px solid #d8dad4;
+                border-radius: 8px;
+                padding: 16px;
+                margin-top: 16px;
+              }
+              label {
+                display: block;
+                font-weight: 700;
+                margin-bottom: 8px;
+              }
+              input[type=file] {
+                width: 100%;
+                box-sizing: border-box;
+                padding: 14px;
+                border: 1px dashed #9aa4b2;
+                border-radius: 8px;
+                background: #fbfbf8;
+              }
+              button {
+                width: 100%;
+                min-height: 48px;
+                margin-top: 14px;
+                border: 0;
+                border-radius: 8px;
+                background: #111827;
+                color: white;
+                font-size: 16px;
+                font-weight: 750;
+              }
+              button:disabled {
+                background: #9aa4b2;
+              }
+              #result {
+                margin-top: 14px;
+                white-space: pre-wrap;
+                line-height: 1.45;
+                color: #1f2933;
+              }
+              .ok {
+                border-left: 4px solid #16a34a;
+                padding-left: 12px;
+              }
+              .error {
+                border-left: 4px solid #dc2626;
+                padding-left: 12px;
+              }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>上传小票/订单截图</h1>
+              <p>适合邮件没读准、delivered 订单漏掉、Whole Foods/Target/Costco 小票等情况。拍照后系统会提取商品、价格、店铺和地址，并更新 Google Sheet。</p>
+              <section class="panel">
+                <form id="receipt-form">
+                  <label for="file">拍照或选择图片</label>
+                  <input id="file" name="file" type="file" accept="image/*,.pdf,.txt" capture="environment" required>
+                  <button id="submit" type="submit">上传并记录</button>
+                </form>
+                <div id="result"></div>
+              </section>
+            </main>
+            <script>
+              const form = document.getElementById('receipt-form');
+              const button = document.getElementById('submit');
+              const result = document.getElementById('result');
+              form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const file = document.getElementById('file').files[0];
+                if (!file) return;
+                button.disabled = true;
+                button.textContent = '正在识别...';
+                result.className = '';
+                result.textContent = '上传中，请稍等。';
+                try {
+                  const body = new FormData();
+                  body.append('file', file);
+                  const response = await fetch('/receipts/upload', { method: 'POST', body });
+                  const data = await response.json();
+                  if (!response.ok) {
+                    throw new Error(data.detail || '上传失败');
+                  }
+                  result.className = 'ok';
+                  result.textContent = `完成：已写入 ${data.receipt_items_created} 条记录。\\n文件：${data.filename || file.name}`;
+                } catch (error) {
+                  result.className = 'error';
+                  result.textContent = `没有成功写入。${error.message || error}`;
+                } finally {
+                  button.disabled = false;
+                  button.textContent = '上传并记录';
+                }
+              });
+            </script>
+          </body>
+        </html>
+        """
+    )
+
+
 @router.post("/receipts/upload")
 async def upload_receipt(file: UploadFile = File(...)) -> dict[str, object]:
     data = await file.read()
