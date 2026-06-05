@@ -115,3 +115,33 @@ def test_receipt_image_does_not_fallback_to_openai_when_gemini_fails(monkeypatch
 
     assert result[0]["item_name"] == "未匹配小票商品"
     assert result[0]["product_title"] == "target_receipt.jpg"
+
+
+def test_receipt_upload_api_returns_extraction_status(monkeypatch):
+    class FakeAgent:
+        def process_upload_with_status(self, filename, content_type, data):
+            return {
+                "insights": [],
+                "extraction_status": {
+                    "method": "gemini",
+                    "model": "gemini-2.5-flash",
+                    "message": "Gemini 返回了空结果或缺少商品名称。",
+                },
+            }
+
+    monkeypatch.setattr(routes, "ReceiptAnalysisAgent", lambda: FakeAgent())
+
+    import anyio
+
+    class FakeUpload:
+        filename = "receipt.jpg"
+        content_type = "image/jpeg"
+
+        async def read(self):
+            return b"image"
+
+    result = anyio.run(routes.upload_receipt, FakeUpload())
+
+    assert result["receipt_items_created"] == 0
+    assert result["extraction_status"]["model"] == "gemini-2.5-flash"
+    assert "Gemini" in result["message"]

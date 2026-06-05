@@ -1224,7 +1224,15 @@ def chat_entry() -> HTMLResponse:
                   const response = await fetch('/receipts/upload', { method: 'POST', body });
                   const data = await response.json();
                   if (!response.ok) throw new Error(data.detail || '上传失败');
-                  receiptResult.textContent = `完成：已写入 ${data.receipt_items_created} 条记录。\\n文件：${data.filename || file.name}`;
+                  const status = data.extraction_status || {};
+                  const details = [
+                    `完成：已写入 ${data.receipt_items_created} 条记录。`,
+                    `文件：${data.filename || file.name}`,
+                    data.message ? `识别状态：${data.message}` : '',
+                    status.error ? `错误：${status.error}` : '',
+                    status.model ? `模型：${status.model}` : ''
+                  ].filter(Boolean).join('\\n');
+                  receiptResult.textContent = details;
                   await refreshState();
                 } catch (error) {
                   receiptResult.textContent = `没有成功写入。${error.message || error}`;
@@ -1865,7 +1873,15 @@ def receipt_upload_entry() -> HTMLResponse:
                     throw new Error(data.detail || '上传失败');
                   }
                   result.className = 'ok';
-                  result.textContent = `完成：已写入 ${data.receipt_items_created} 条记录。\\n文件：${data.filename || file.name}`;
+                  const status = data.extraction_status || {};
+                  const details = [
+                    `完成：已写入 ${data.receipt_items_created} 条记录。`,
+                    `文件：${data.filename || file.name}`,
+                    data.message ? `识别状态：${data.message}` : '',
+                    status.error ? `错误：${status.error}` : '',
+                    status.model ? `模型：${status.model}` : ''
+                  ].filter(Boolean).join('\\n');
+                  result.textContent = details;
                 } catch (error) {
                   result.className = 'error';
                   result.textContent = `没有成功写入。${error.message || error}`;
@@ -1889,13 +1905,17 @@ async def upload_receipt(file: UploadFile = File(...)) -> dict[str, object]:
     if len(data) > 8 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="小票文件太大，请控制在 8MB 以内。")
 
-    insights = ReceiptAnalysisAgent().process_upload(
+    result = ReceiptAnalysisAgent().process_upload_with_status(
         file.filename or "receipt", file.content_type or "application/octet-stream", data
     )
+    insights = result["insights"]
+    extraction_status = result["extraction_status"]
     return {
         "status": "完成",
         "filename": file.filename,
         "receipt_items_created": len(insights),
+        "extraction_status": extraction_status,
+        "message": extraction_status.get("message", ""),
     }
 
 

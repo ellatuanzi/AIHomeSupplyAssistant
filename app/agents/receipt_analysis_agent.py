@@ -28,6 +28,7 @@ class ReceiptAnalysisAgent:
         self.recommender = recommender or OpenAIRecommendationService()
         self.hsa_tracker = hsa_tracker
         self.default_shipping_address = self.recommender.client and ""
+        self.last_extraction_status: dict[str, Any] = {}
 
     def process_upload(
         self, filename: str, content_type: str, data: bytes
@@ -36,6 +37,7 @@ class ReceiptAnalysisAgent:
         inventory = self.sheets.get_inventory_items()
         receipt_id = new_id("receipt")
         extracted_items = self._extract_receipt_items(filename, content_type, data, inventory)
+        extracted_items = self._valid_receipt_items(extracted_items)
         receipt_link = self._upload_hsa_receipt_if_needed(filename, content_type, data, extracted_items)
         insights = []
 
@@ -57,6 +59,15 @@ class ReceiptAnalysisAgent:
 
         return insights
 
+    def process_upload_with_status(
+        self, filename: str, content_type: str, data: bytes
+    ) -> dict[str, Any]:
+        insights = self.process_upload(filename, content_type, data)
+        return {
+            "insights": insights,
+            "extraction_status": self.last_extraction_status,
+        }
+
     def _extract_receipt_items(
         self,
         filename: str,
@@ -67,9 +78,25 @@ class ReceiptAnalysisAgent:
         text = _decode_text(data)
         if content_type.startswith("image/") and self.recommender.gemini_api_key:
             try:
-                return self._extract_with_gemini(filename, content_type, data, inventory)
-            except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError):
-                pass
+                items = self._extract_with_gemini(filename, content_type, data, inventory)
+                valid_items = self._valid_receipt_items(items)
+                self.last_extraction_status = {
+                    "method": "gemini",
+                    "gemini_configured": True,
+                    "model": self.recommender.gemini_model,
+                    "raw_items": len(items),
+                    "valid_items": len(valid_items),
+                    "message": "Gemini 已返回识别结果。" if valid_items else "Gemini 返回了空结果或缺少商品名称。",
+                }
+                return valid_items
+            except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError) as exc:
+                self.last_extraction_status = {
+                    "method": "heuristic",
+                    "gemini_configured": True,
+                    "model": self.recommender.gemini_model,
+                    "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                    "message": "Gemini 图片识别失败，已改用本地基础解析。",
+                }
 
         if not content_type.startswith("image/") and self.recommender.gemini_api_key:
             fallback = [self._heuristic_receipt_item(filename, text, inventory)]
@@ -82,7 +109,25 @@ class ReceiptAnalysisAgent:
                 return [result]
             return fallback
 
+        self.last_extraction_status = {
+            "method": "heuristic",
+            "gemini_configured": bool(self.recommender.gemini_api_key),
+            "model": getattr(self.recommender, "gemini_model", ""),
+            "message": "未使用 Gemini 图片识别；已改用本地基础解析。",
+        }
         return [self._heuristic_receipt_item(filename, text, inventory)]
+
+    @staticmethod
+    def _valid_receipt_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        valid_items = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_name = str(item.get("item_name", "")).strip()
+            product_title = str(item.get("product_title", "")).strip()
+            if item_name or product_title:
+                valid_items.append(item)
+        return valid_items
 
     def _receipt_extraction_prompt(
         self,
