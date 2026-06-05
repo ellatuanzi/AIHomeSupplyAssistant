@@ -79,6 +79,15 @@ class FakeSheets:
         return {"商品ID": item_id, "目标位置": target_location, "任务类型": task_type}
 
 
+class FakeSheetsWithoutWetWipes(FakeSheets):
+    def get_inventory_items(self):
+        return [
+            item
+            for item in super().get_inventory_items()
+            if item.item_id != "wet_wipes"
+        ]
+
+
 def test_voice_command_records_low_stock(monkeypatch):
     fake = FakeSheets()
     monkeypatch.setattr(routes, "sheets_service", lambda: fake)
@@ -146,6 +155,19 @@ def test_voice_command_handles_wet_wipes_to_third_floor(monkeypatch):
     assert result["action"] == "create_task"
     assert result["item_id"] == "wet_wipes"
     assert result["target_location"] == "三层收纳柜"
+    assert fake.task_rows[0][7] == "三层收纳柜"
+
+
+def test_voice_command_creates_common_alias_item_with_standard_id(monkeypatch):
+    fake = FakeSheetsWithoutWetWipes()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("把湿纸巾拿到3层")
+
+    assert result["status"] == "已创建"
+    assert result["item_id"] == "wet_wipes"
+    assert fake.created_items[0].item_id == "wet_wipes"
+    assert fake.created_items[0].item_name == "Wet Wipes"
     assert fake.task_rows[0][7] == "三层收纳柜"
 
 

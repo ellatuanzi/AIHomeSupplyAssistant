@@ -155,6 +155,23 @@ COMMON_ITEM_ALIASES = {
 }
 
 
+COMMON_ITEM_NAMES = {
+    "toilet_paper": "Toilet Paper",
+    "paper_towels": "Paper Towels",
+    "napkin": "Napkin",
+    "wet_wipes": "Wet Wipes",
+    "trash_bags": "Trash Bags",
+    "detergent": "Laundry Detergent",
+    "pet_food": "Pet Food",
+    "body_lotion": "Body Lotion",
+    "swiffer_wet_cloth": "Swiffer Wet Cloth",
+    "pencil": "Pencil",
+    "eraser": "Eraser",
+    "kids_toothpaste": "Kids Toothpaste",
+    "kids_electric_toothbrush": "Kids Electric Toothbrush",
+}
+
+
 LOCATION_DETAIL_OPTIONS = {
     "车库": ["货架", "收纳柜", "门口备用区"],
     "一层": ["玄关柜", "客厅柜", "储物柜"],
@@ -402,6 +419,39 @@ def _match_voice_item(text: str, inventory: list[Any]) -> Any | None:
     return best
 
 
+def _match_common_alias_item_id(text: str) -> str:
+    normalized = text.lower().replace(" ", "").replace("_", "")
+    best_item_id = ""
+    best_score = 0
+    for item_id, aliases in COMMON_ITEM_ALIASES.items():
+        candidates = [item_id, COMMON_ITEM_NAMES.get(item_id, item_id)] + aliases
+        for candidate in candidates:
+            candidate_key = str(candidate).lower().replace(" ", "").replace("_", "")
+            if candidate_key and candidate_key in normalized and len(candidate_key) > best_score:
+                best_item_id = item_id
+                best_score = len(candidate_key)
+    return best_item_id
+
+
+def _create_common_alias_inventory_item(
+    sheets: Any,
+    item_id: str,
+    command: str,
+    location: str = "",
+) -> Any | None:
+    if not item_id or not hasattr(sheets, "ensure_inventory_item"):
+        return None
+    item_name = COMMON_ITEM_NAMES.get(item_id, item_id.replace("_", " ").title())
+    return sheets.ensure_inventory_item(
+        item_id=item_id,
+        item_name=item_name,
+        category="未分类",
+        household_location=location,
+        urgency_default="中",
+        notes=f"自动从常用别名创建，原始指令：{command}",
+    )
+
+
 def _slugify_item_name(name: str) -> str:
     cleaned = name.strip().lower()
     cleaned = re.sub(r"['’]", "", cleaned)
@@ -503,6 +553,16 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
     note = f"语音指令：{command}"
     item = _match_voice_item(command, inventory)
     created_unknown_item = False
+    if not item:
+        alias_item_id = _match_common_alias_item_id(command)
+        if alias_item_id:
+            item = sheets.find_inventory_item(alias_item_id) if hasattr(sheets, "find_inventory_item") else None
+            if not item:
+                try:
+                    item = _create_common_alias_inventory_item(sheets, alias_item_id, command, location)
+                    created_unknown_item = bool(item)
+                except Exception as exc:
+                    return _voice_failure_result(f"无法自动创建常用商品，所以没有更新：{exc}", command, action)
     if not item:
         try:
             item = _create_unknown_inventory_item(sheets, command, location)
