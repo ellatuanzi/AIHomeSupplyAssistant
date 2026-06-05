@@ -65,6 +65,7 @@ COMMON_ITEM_ALIASES = {
         "婴儿湿巾",
         "baby wipes",
         "wet wipes",
+        "wipe",
         "wipes",
         "flushable wipes",
     ],
@@ -522,7 +523,27 @@ def _create_unknown_inventory_item(
 
 def _voice_action(text: str) -> str:
     lowered = text.lower()
-    if any(token in lowered for token in ["完成", "做好", "做完", "done", "finish", "finished"]):
+    if any(
+        token in lowered
+        for token in [
+            "完成",
+            "做好",
+            "做完",
+            "已拿到",
+            "已经拿到",
+            "已搬到",
+            "已经搬到",
+            "已放到",
+            "已经放到",
+            "已移到",
+            "已经移到",
+            "已补到",
+            "已经补到",
+            "done",
+            "finish",
+            "finished",
+        ]
+    ):
         return "complete_task"
     if any(token in lowered for token in ["任务", "todo", "to do", "待办", "拿到", "搬到", "移到", "补到"]):
         return "create_task"

@@ -265,3 +265,28 @@ def test_voice_command_completes_task(monkeypatch):
     assert result["status"] == "已完成"
     assert result["action"] == "complete_task"
     assert fake.completed is True
+
+
+def test_voice_command_completes_wipe_task_by_completion_phrase(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("wipe搬运完成")
+
+    assert result["status"] == "已完成"
+    assert result["action"] == "complete_task"
+    assert result["item_id"] == "wet_wipes"
+    assert fake.completed is True
+
+
+def test_voice_command_completes_wipe_task_when_already_moved(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("wipe已拿到3层")
+
+    assert result["status"] == "已完成"
+    assert result["action"] == "complete_task"
+    assert result["item_id"] == "wet_wipes"
+    assert result["target_location"] == "三层收纳柜"
+    assert fake.completed is True
