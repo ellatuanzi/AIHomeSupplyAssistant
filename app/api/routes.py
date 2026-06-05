@@ -1139,9 +1139,12 @@ def chat_entry() -> HTMLResponse:
               </section>
               <section class="panel">
                 <h2>拍照补录</h2>
-                <p class="subtle">邮件没读准或 delivered 订单漏掉时，可以在这里拍小票、订单截图或 delivered 页面截图。</p>
+                <p class="subtle">邮件没读准或 delivered 订单漏掉时，可以在这里拍小票、订单截图或 delivered 页面截图。一个订单可以上传多张图，系统会自动去掉重复商品。</p>
                 <form id="receipt-form" class="upload-form">
-                  <input id="receipt-file" name="file" type="file" accept="image/*,.pdf,.txt" capture="environment" required>
+                  <label for="receipt-camera">拍照上传</label>
+                  <input id="receipt-camera" name="file" type="file" accept="image/*" capture="environment" multiple>
+                  <label for="receipt-file">本地上传 / 相册选择</label>
+                  <input id="receipt-file" name="file" type="file" accept="image/*,.pdf,.txt" multiple>
                   <button id="receipt-submit" type="submit">上传并写入 Google Sheet</button>
                 </form>
                 <div id="receipt-result" class="upload-result"></div>
@@ -1153,6 +1156,7 @@ def chat_entry() -> HTMLResponse:
               const form = document.getElementById('chat-form');
               const input = document.getElementById('message');
               const receiptForm = document.getElementById('receipt-form');
+              const receiptCamera = document.getElementById('receipt-camera');
               const receiptFile = document.getElementById('receipt-file');
               const receiptSubmit = document.getElementById('receipt-submit');
               const receiptResult = document.getElementById('receipt-result');
@@ -1213,26 +1217,29 @@ def chat_entry() -> HTMLResponse:
               });
               receiptForm.addEventListener('submit', async (event) => {
                 event.preventDefault();
-                const file = receiptFile.files[0];
-                if (!file) return;
+                const files = [...receiptCamera.files, ...receiptFile.files];
+                if (!files.length) return;
                 receiptSubmit.disabled = true;
                 receiptSubmit.textContent = '正在识别...';
-                receiptResult.textContent = '上传中，请稍等。';
+                receiptResult.textContent = `上传 ${files.length} 个文件中，请稍等。`;
                 try {
                   const body = new FormData();
-                  body.append('file', file);
+                  files.forEach((file) => body.append('file', file));
                   const response = await fetch('/receipts/upload', { method: 'POST', body });
                   const data = await response.json();
                   if (!response.ok) throw new Error(data.detail || '上传失败');
                   const status = data.extraction_status || {};
                   const details = [
                     `完成：已写入 ${data.receipt_items_created} 条记录。`,
-                    `文件：${data.filename || file.name}`,
+                    `文件数：${data.files_uploaded || files.length}`,
+                    `去重：${status.duplicates_removed || 0} 条`,
                     data.message ? `识别状态：${data.message}` : '',
                     status.error ? `错误：${status.error}` : '',
                     status.model ? `模型：${status.model}` : ''
                   ].filter(Boolean).join('\\n');
                   receiptResult.textContent = details;
+                  receiptCamera.value = '';
+                  receiptFile.value = '';
                   await refreshState();
                 } catch (error) {
                   receiptResult.textContent = `没有成功写入。${error.message || error}`;
@@ -1842,11 +1849,13 @@ def receipt_upload_entry() -> HTMLResponse:
           <body>
             <main>
               <h1>上传小票/订单截图</h1>
-              <p>适合邮件没读准、delivered 订单漏掉、Whole Foods/Target/Costco 小票等情况。拍照后系统会提取商品、价格、店铺和地址，并更新 Google Sheet。</p>
+              <p>适合邮件没读准、delivered 订单漏掉、Whole Foods/Target/Costco 小票等情况。一个订单可以上传多张图，系统会合并识别并去掉重复商品。</p>
               <section class="panel">
                 <form id="receipt-form">
-                  <label for="file">拍照或选择图片</label>
-                  <input id="file" name="file" type="file" accept="image/*,.pdf,.txt" capture="environment" required>
+                  <label for="camera-file">拍照上传</label>
+                  <input id="camera-file" name="file" type="file" accept="image/*" capture="environment" multiple>
+                  <label for="local-file">本地上传 / 相册选择</label>
+                  <input id="local-file" name="file" type="file" accept="image/*,.pdf,.txt" multiple>
                   <button id="submit" type="submit">上传并记录</button>
                 </form>
                 <div id="result"></div>
@@ -1856,17 +1865,19 @@ def receipt_upload_entry() -> HTMLResponse:
               const form = document.getElementById('receipt-form');
               const button = document.getElementById('submit');
               const result = document.getElementById('result');
+              const cameraFile = document.getElementById('camera-file');
+              const localFile = document.getElementById('local-file');
               form.addEventListener('submit', async (event) => {
                 event.preventDefault();
-                const file = document.getElementById('file').files[0];
-                if (!file) return;
+                const files = [...cameraFile.files, ...localFile.files];
+                if (!files.length) return;
                 button.disabled = true;
                 button.textContent = '正在识别...';
                 result.className = '';
-                result.textContent = '上传中，请稍等。';
+                result.textContent = `上传 ${files.length} 个文件中，请稍等。`;
                 try {
                   const body = new FormData();
-                  body.append('file', file);
+                  files.forEach((file) => body.append('file', file));
                   const response = await fetch('/receipts/upload', { method: 'POST', body });
                   const data = await response.json();
                   if (!response.ok) {
@@ -1876,12 +1887,15 @@ def receipt_upload_entry() -> HTMLResponse:
                   const status = data.extraction_status || {};
                   const details = [
                     `完成：已写入 ${data.receipt_items_created} 条记录。`,
-                    `文件：${data.filename || file.name}`,
+                    `文件数：${data.files_uploaded || files.length}`,
+                    `去重：${status.duplicates_removed || 0} 条`,
                     data.message ? `识别状态：${data.message}` : '',
                     status.error ? `错误：${status.error}` : '',
                     status.model ? `模型：${status.model}` : ''
                   ].filter(Boolean).join('\\n');
                   result.textContent = details;
+                  cameraFile.value = '';
+                  localFile.value = '';
                 } catch (error) {
                   result.className = 'error';
                   result.textContent = `没有成功写入。${error.message || error}`;
@@ -1898,21 +1912,36 @@ def receipt_upload_entry() -> HTMLResponse:
 
 
 @router.post("/receipts/upload")
-async def upload_receipt(file: UploadFile = File(...)) -> dict[str, object]:
-    data = await file.read()
-    if not data:
+async def upload_receipt(file: list[UploadFile] = File(...)) -> dict[str, object]:
+    files = file if isinstance(file, list) else [file]
+    uploads = []
+    total_size = 0
+    for upload in files:
+        data = await upload.read()
+        if not data:
+            continue
+        total_size += len(data)
+        uploads.append(
+            (
+                upload.filename or "receipt",
+                upload.content_type or "application/octet-stream",
+                data,
+            )
+        )
+    if not uploads:
         raise HTTPException(status_code=400, detail="上传的小票文件为空。")
-    if len(data) > 8 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="小票文件太大，请控制在 8MB 以内。")
+    if total_size > 24 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="上传文件总大小太大，请控制在 24MB 以内。")
+    if any(len(data) > 8 * 1024 * 1024 for _filename, _content_type, data in uploads):
+        raise HTTPException(status_code=400, detail="单个小票文件太大，请控制在 8MB 以内。")
 
-    result = ReceiptAnalysisAgent().process_upload_with_status(
-        file.filename or "receipt", file.content_type or "application/octet-stream", data
-    )
+    result = ReceiptAnalysisAgent().process_uploads_with_status(uploads)
     insights = result["insights"]
     extraction_status = result["extraction_status"]
     return {
         "status": "完成",
-        "filename": file.filename,
+        "filename": uploads[0][0],
+        "files_uploaded": len(uploads),
         "receipt_items_created": len(insights),
         "extraction_status": extraction_status,
         "message": extraction_status.get("message", ""),

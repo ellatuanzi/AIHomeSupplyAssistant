@@ -33,15 +33,37 @@ class ReceiptAnalysisAgent:
     def process_upload(
         self, filename: str, content_type: str, data: bytes
     ) -> list[dict[str, Any]]:
+        return self.process_uploads([(filename, content_type, data)])
+
+    def process_uploads(
+        self, uploads: list[tuple[str, str, bytes]]
+    ) -> list[dict[str, Any]]:
         self.sheets.ensure_tabs_and_headers()
         inventory = self.sheets.get_inventory_items()
         receipt_id = new_id("receipt")
-        extracted_items = self._extract_receipt_items(filename, content_type, data, inventory)
-        extracted_items = self._valid_receipt_items(extracted_items)
-        receipt_link = self._upload_hsa_receipt_if_needed(filename, content_type, data, extracted_items)
+        extracted_items: list[dict[str, Any]] = []
+        file_statuses = []
+
+        for filename, content_type, data in uploads:
+            file_items = self._valid_receipt_items(
+                self._extract_receipt_items(filename, content_type, data, inventory)
+            )
+            status = dict(self.last_extraction_status)
+            status["filename"] = filename
+            status["valid_items"] = len(file_items)
+            file_statuses.append(status)
+            receipt_link = self._upload_hsa_receipt_if_needed(filename, content_type, data, file_items)
+            for order in file_items:
+                order["_source_filename"] = filename
+                order["_receipt_link"] = receipt_link
+            extracted_items.extend(file_items)
+
+        deduped_items = _dedupe_receipt_items(extracted_items)
+        duplicates_removed = len(extracted_items) - len(deduped_items)
         insights = []
 
-        for index, order in enumerate(extracted_items, start=1):
+        for index, order in enumerate(deduped_items, start=1):
+            filename = order.get("_source_filename", "receipt")
             item = self._match_inventory_item(order, inventory)
             order["address_category"] = _address_category(
                 order.get("shipping_address", ""), self._default_shipping_address()
@@ -52,17 +74,33 @@ class ReceiptAnalysisAgent:
             self._write_hsa_candidate(
                 source_id=f"{receipt_id}#{index}",
                 order=order,
-                receipt_link=receipt_link,
+                receipt_link=order.get("_receipt_link", ""),
                 filename=filename,
             )
             insights.append(insight)
 
+        self.last_extraction_status = {
+            "method": "batch",
+            "files": len(uploads),
+            "raw_items": len(extracted_items),
+            "valid_items": len(deduped_items),
+            "duplicates_removed": duplicates_removed,
+            "file_statuses": file_statuses,
+            "message": (
+                f"已处理 {len(uploads)} 个文件，识别 {len(deduped_items)} 条记录，去掉 {duplicates_removed} 条重复。"
+            ),
+        }
         return insights
 
     def process_upload_with_status(
         self, filename: str, content_type: str, data: bytes
     ) -> dict[str, Any]:
-        insights = self.process_upload(filename, content_type, data)
+        return self.process_uploads_with_status([(filename, content_type, data)])
+
+    def process_uploads_with_status(
+        self, uploads: list[tuple[str, str, bytes]]
+    ) -> dict[str, Any]:
+        insights = self.process_uploads(uploads)
         return {
             "insights": insights,
             "extraction_status": self.last_extraction_status,
@@ -414,6 +452,37 @@ def _parse_json(content: str) -> Any:
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     return json.loads(cleaned)
+
+
+def _dedupe_receipt_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen = set()
+    result = []
+    for item in items:
+        key = _receipt_item_dedupe_key(item)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
+
+
+def _receipt_item_dedupe_key(item: dict[str, Any]) -> tuple[str, str, str]:
+    identity = item.get("item_id") or item.get("product_title") or item.get("item_name") or ""
+    retailer = item.get("retailer", "")
+    price = item.get("price", "")
+    return (_normalize_text_key(identity), _normalize_text_key(retailer), _normalize_price(price))
+
+
+def _normalize_text_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "", str(value).lower())
+
+
+def _normalize_price(value: Any) -> str:
+    match = re.search(r"\d+(?:\.\d{1,2})?", str(value))
+    if not match:
+        return ""
+    dollars = float(match.group(0))
+    return f"{dollars:.2f}"
 
 
 def _normalize_address(value: str) -> str:
