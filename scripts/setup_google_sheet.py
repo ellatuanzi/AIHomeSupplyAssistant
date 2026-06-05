@@ -55,6 +55,18 @@ SAMPLE_INVENTORY = [
         "中",
         "",
     ],
+    [
+        "wet_wipes",
+        "Wet Wipes",
+        "纸品",
+        "",
+        "Costco, Amazon",
+        "三层收纳柜",
+        "bulk pack",
+        "少于 20%",
+        "中",
+        "语音可说：湿纸巾、湿巾、wet wipes",
+    ],
 ]
 
 

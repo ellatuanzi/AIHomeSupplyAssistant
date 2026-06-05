@@ -16,6 +16,7 @@ class FakeSheets:
             InventoryItem(item_id="toilet_paper", item_name="Toilet Paper", urgency_default="中"),
             InventoryItem(item_id="paper_towels", item_name="Paper Towels", urgency_default="中"),
             InventoryItem(item_id="napkin", item_name="Napkin", urgency_default="中"),
+            InventoryItem(item_id="wet_wipes", item_name="Wet Wipes", urgency_default="中"),
             InventoryItem(item_id="body_lotion", item_name="Body Lotion", urgency_default="中"),
             InventoryItem(item_id="kids_toothpaste", item_name="Kids Toothpaste", urgency_default="中"),
         ]
@@ -135,6 +136,19 @@ def test_voice_command_handles_napkin_alias(monkeypatch):
     assert fake.low_stock_rows[0][3] == "Napkin"
 
 
+def test_voice_command_handles_wet_wipes_to_third_floor(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("把湿纸巾拿到3层")
+
+    assert result["status"] == "已创建"
+    assert result["action"] == "create_task"
+    assert result["item_id"] == "wet_wipes"
+    assert result["target_location"] == "三层收纳柜"
+    assert fake.task_rows[0][7] == "三层收纳柜"
+
+
 def test_voice_command_handles_brand_alias(monkeypatch):
     fake = FakeSheets()
     monkeypatch.setattr(routes, "sheets_service", lambda: fake)
@@ -157,6 +171,20 @@ def test_voice_command_creates_unknown_item_when_not_matched(monkeypatch):
     assert fake.created_items[0].item_name == "神秘东西"
     assert fake.low_stock_rows[0][2] == "custom_神秘东西"
     assert fake.low_stock_rows[0][3] == "神秘东西"
+
+
+def test_voice_command_creates_unknown_task_without_location_in_name(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("把神秘布拿到3层")
+
+    assert result["ok"] is True
+    assert result["status"] == "已创建"
+    assert result["created_unknown_item"] is True
+    assert fake.created_items[0].item_name == "神秘布"
+    assert fake.task_rows[0][4] == "神秘布"
+    assert fake.task_rows[0][7] == "三层收纳柜"
 
 
 def test_voice_command_warns_when_sheet_write_fails(monkeypatch):

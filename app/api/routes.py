@@ -57,6 +57,16 @@ COMMON_ITEM_ALIASES = {
         "paper napkin",
         "paper napkins",
     ],
+    "wet_wipes": [
+        "湿纸巾",
+        "湿巾",
+        "擦手湿巾",
+        "婴儿湿巾",
+        "baby wipes",
+        "wet wipes",
+        "wipes",
+        "flushable wipes",
+    ],
     "trash_bags": [
         "垃圾袋",
         "垃圾带",
@@ -157,6 +167,19 @@ LOCATION_DETAIL_OPTIONS = {
     "汤圆房间": ["书桌", "衣柜", "床头柜", "收纳柜"],
     "汤圆洗手间": ["洗手台下", "镜柜", "马桶旁"],
     "三层收纳柜": ["上层", "中层", "下层"],
+}
+
+
+LOCATION_ALIASES = {
+    "车库": ["garage"],
+    "二层餐厅": ["餐厅", "二楼餐厅", "2层餐厅", "2楼餐厅"],
+    "二层厨房": ["厨房", "二楼厨房", "2层厨房", "2楼厨房"],
+    "二层洗手间": ["二楼洗手间", "2层洗手间", "2楼洗手间", "二楼厕所", "二楼卫生间"],
+    "主卧": ["master bedroom", "主卧室"],
+    "主卧洗手间": ["主卧厕所", "主卧卫生间", "主卫", "master bathroom"],
+    "汤圆房间": ["汤圆屋", "汤圆卧室", "tangyuan room"],
+    "汤圆洗手间": ["汤圆厕所", "汤圆卫生间", "tangyuan bathroom"],
+    "三层收纳柜": ["3层", "三层", "3楼", "三楼", "顶楼", "三层柜", "三层收纳"],
 }
 
 
@@ -269,34 +292,64 @@ def _split_location_string(value: str) -> list[str]:
 
 
 def _known_location_names() -> list[str]:
-    names = _location_options([])
-    for area, details in LOCATION_DETAIL_OPTIONS.items():
-        for detail in details:
-            names.append(f"{area} - {detail}")
-            names.append(detail)
+    names = [alias for alias, _canonical in _location_lookup()]
     return sorted({name.strip() for name in names if name.strip()}, key=len, reverse=True)
+
+
+def _location_lookup() -> list[tuple[str, str]]:
+    names: list[tuple[str, str]] = []
+    for location in _location_options([]):
+        names.append((location, location))
+    for area, details in LOCATION_DETAIL_OPTIONS.items():
+        names.append((area, area))
+        for detail in details:
+            names.append((f"{area} - {detail}", f"{area} - {detail}"))
+            names.append((detail, detail))
+    for canonical, aliases in LOCATION_ALIASES.items():
+        names.append((canonical, canonical))
+        for alias in aliases:
+            names.append((alias, canonical))
+
+    deduped: dict[str, str] = {}
+    for alias, canonical in names:
+        alias = alias.strip()
+        canonical = canonical.strip()
+        if alias:
+            deduped[alias.lower()] = canonical
+    return sorted(
+        [(alias, canonical) for alias, canonical in deduped.items()],
+        key=lambda pair: len(pair[0]),
+        reverse=True,
+    )
 
 
 def _find_location_in_text(text: str) -> str:
     normalized = text.lower()
-    for location_name in _known_location_names():
-        if location_name.lower() in normalized:
-            return location_name
+    for alias, canonical in _location_lookup():
+        if alias.lower() in normalized:
+            return canonical
     return ""
 
 
 def _locations_in_text(text: str) -> list[str]:
     normalized = text.lower()
     matches = []
-    for location_name in _known_location_names():
-        start = normalized.find(location_name.lower())
+    for alias, canonical in _location_lookup():
+        start = normalized.find(alias.lower())
         if start >= 0:
-            matches.append((start, -len(location_name), location_name))
+            matches.append((start, -len(alias), canonical))
     by_start = {}
     for start, negative_length, location_name in sorted(matches):
         if start not in by_start:
             by_start[start] = (negative_length, location_name)
-    return [value[1] for _, value in sorted(by_start.items())]
+    result = []
+    seen = set()
+    for _, value in sorted(by_start.items()):
+        location = value[1]
+        if location not in seen:
+            seen.add(location)
+            result.append(location)
+    return result
 
 
 def _find_source_target_locations(text: str) -> tuple[str, str]:
