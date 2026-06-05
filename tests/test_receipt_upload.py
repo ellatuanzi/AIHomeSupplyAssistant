@@ -218,7 +218,7 @@ def test_receipt_batch_upload_dedupes_across_pictures():
     assert result["extraction_status"]["duplicates_removed"] == 1
 
 
-def test_receipt_batch_upload_uses_single_gemini_call(monkeypatch):
+def test_receipt_batch_upload_uses_per_file_gemini_calls(monkeypatch):
     class FakeResponse:
         def raise_for_status(self):
             return None
@@ -235,18 +235,7 @@ def test_receipt_batch_upload_uses_single_gemini_call(monkeypatch):
                                         '{"retailer":"Amazon","item_name":"Good Crisp Chips",'
                                         '"item_id":"","brand":"The Good Crisp Company",'
                                         '"product_title":"The Good Crisp Company Chips Potato Crinkle Cut Outback BBQ, 5.5 Ounce",'
-                                        '"quantity":"Qty: 1","price":"$3.00","shipping_address":"","order_link":"",'
-                                        '"source_filename":"page-1.png"},'
-                                        '{"retailer":"Amazon","item_name":"Good Crisp Chips",'
-                                        '"item_id":"","brand":"The Good Crisp Company",'
-                                        '"product_title":"The Good Crisp Company Chips Potato Crinkle Cut Outback BBQ, 5.5 Ounce",'
-                                        '"quantity":"Qty: 1","price":"$3.00","shipping_address":"","order_link":"",'
-                                        '"source_filename":"page-2.png"},'
-                                        '{"retailer":"Amazon","item_name":"Epic Artisanal Bone Broth",'
-                                        '"item_id":"","brand":"Epic",'
-                                        '"product_title":"Epic Artisanal Bone Broth, Homestyle Savory Chicken, 14 oz.",'
-                                        '"quantity":"Qty: 1","price":"$5.58","shipping_address":"","order_link":"",'
-                                        '"source_filename":"page-1.png"}'
+                                        '"quantity":"Qty: 1","price":"$3.00","shipping_address":"","order_link":""}'
                                         "]"
                                     )
                                 }
@@ -256,11 +245,11 @@ def test_receipt_batch_upload_uses_single_gemini_call(monkeypatch):
                 ]
             }
 
-    captured = {"calls": 0}
+    captured = {"calls": 0, "prompts": []}
 
     def fake_post(url, params, json, timeout):
         captured["calls"] += 1
-        captured["json"] = json
+        captured["prompts"].append(json["contents"][0]["parts"][0]["text"])
         return FakeResponse()
 
     monkeypatch.setattr(receipt_analysis_agent.requests, "post", fake_post)
@@ -302,10 +291,8 @@ def test_receipt_batch_upload_uses_single_gemini_call(monkeypatch):
         ]
     )
 
-    prompt_text = captured["json"]["contents"][0]["parts"][0]["text"]
-    assert captured["calls"] == 1
-    assert "同一个购物订单页面的连续截图" in prompt_text
-    assert "跨截图重复商品只输出一次" in prompt_text
-    assert len(result["insights"]) == 2
+    assert captured["calls"] == 2
+    assert all("所有可见的已购买商品" in prompt for prompt in captured["prompts"])
+    assert len(result["insights"]) == 1
     assert result["extraction_status"]["method"] == "batch"
     assert result["extraction_status"]["duplicates_removed"] == 1

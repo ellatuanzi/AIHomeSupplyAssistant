@@ -1139,7 +1139,7 @@ def chat_entry() -> HTMLResponse:
               </section>
               <section class="panel">
                 <h2>拍照补录</h2>
-                <p class="subtle">邮件没读准或 delivered 订单漏掉时，可以在这里拍小票、订单截图或 delivered 页面截图。一个订单最多上传 4 张图，每张 4MB 以内，系统会自动去掉重复商品。</p>
+                <p class="subtle">邮件没读准或 delivered 订单漏掉时，可以在这里拍小票、订单截图或 delivered 页面截图。一次最多上传 3 张图，每张 3MB 以内，系统会逐张识别并去掉重复商品。</p>
                 <form id="receipt-form" class="upload-form">
                   <label for="receipt-camera">拍照上传</label>
                   <input id="receipt-camera" name="file" type="file" accept="image/*" capture="environment" multiple>
@@ -1853,7 +1853,7 @@ def receipt_upload_entry() -> HTMLResponse:
           <body>
             <main>
               <h1>上传小票/订单截图</h1>
-              <p>适合邮件没读准、delivered 订单漏掉、Whole Foods/Target/Costco 小票等情况。一个订单最多上传 4 张图，每张 4MB 以内，系统会合并识别并去掉重复商品。</p>
+              <p>适合邮件没读准、delivered 订单漏掉、Whole Foods/Target/Costco 小票等情况。一次最多上传 3 张图，每张 3MB 以内，系统会逐张识别并去掉重复商品。</p>
               <section class="panel">
                 <form id="receipt-form">
                   <label for="camera-file">拍照上传</label>
@@ -1922,19 +1922,19 @@ def receipt_upload_entry() -> HTMLResponse:
 @router.post("/receipts/upload")
 async def upload_receipt(file: list[UploadFile] = File(...)) -> dict[str, object]:
     files = file if isinstance(file, list) else [file]
-    if len(files) > 4:
-        raise HTTPException(status_code=400, detail="一次最多上传 4 个文件。")
+    if len(files) > 3:
+        raise HTTPException(status_code=400, detail="一次最多上传 3 个文件。")
     uploads = []
     total_size = 0
     for upload in files:
         data = await upload.read()
         if not data:
             continue
-        if len(data) > 4 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="单个小票文件太大，请控制在 4MB 以内。")
+        if len(data) > 3 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="单个小票文件太大，请控制在 3MB 以内。")
         total_size += len(data)
-        if total_size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail="上传文件总大小太大，请控制在 10MB 以内。")
+        if total_size > 6 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="上传文件总大小太大，请控制在 6MB 以内。")
         uploads.append(
             (
                 upload.filename or "receipt",

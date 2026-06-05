@@ -191,11 +191,9 @@ class ReceiptAnalysisAgent:
         return [self._heuristic_receipt_item(filename, text, inventory)]
 
     def _can_extract_images_as_batch(self, uploads: list[tuple[str, str, bytes]]) -> bool:
-        return (
-            len(uploads) > 1
-            and bool(self.recommender.gemini_api_key)
-            and all(content_type.startswith("image/") for _filename, content_type, _data in uploads)
-        )
+        # Render's small instances can exceed memory when several mobile screenshots are
+        # base64-encoded into one Gemini request. Process files one by one instead.
+        return False
 
     @staticmethod
     def _valid_receipt_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
