@@ -41,22 +41,57 @@ class ReceiptAnalysisAgent:
         self.sheets.ensure_tabs_and_headers()
         inventory = self.sheets.get_inventory_items()
         receipt_id = new_id("receipt")
-        extracted_items: list[dict[str, Any]] = []
         file_statuses = []
+        extracted_items: list[dict[str, Any]]
 
-        for filename, content_type, data in uploads:
-            file_items = self._valid_receipt_items(
-                self._extract_receipt_items(filename, content_type, data, inventory)
-            )
-            status = dict(self.last_extraction_status)
-            status["filename"] = filename
-            status["valid_items"] = len(file_items)
-            file_statuses.append(status)
-            receipt_link = self._upload_hsa_receipt_if_needed(filename, content_type, data, file_items)
-            for order in file_items:
-                order["_source_filename"] = filename
-                order["_receipt_link"] = receipt_link
-            extracted_items.extend(file_items)
+        if self._can_extract_images_as_batch(uploads):
+            try:
+                extracted_items = self._valid_receipt_items(
+                    self._extract_image_batch_with_gemini(uploads, inventory)
+                )
+            except (requests.RequestException, ValueError, KeyError, json.JSONDecodeError) as exc:
+                extracted_items = []
+                file_statuses.append(
+                    {
+                        "method": "per_file_fallback",
+                        "gemini_configured": True,
+                        "model": self.recommender.gemini_model,
+                        "error": f"{type(exc).__name__}: {str(exc)[:300]}",
+                        "message": "多图合并识别失败，已改用逐张识别。",
+                    }
+                )
+            else:
+                receipt_links = {
+                    filename: self._upload_hsa_receipt_if_needed(filename, content_type, data, extracted_items)
+                    for filename, content_type, data in uploads
+                }
+                fallback_filename = uploads[0][0] if uploads else "receipt"
+                for order in extracted_items:
+                    source_filename = order.get("source_filename") or order.get("_source_filename") or fallback_filename
+                    order["_source_filename"] = source_filename
+                    order["_receipt_link"] = receipt_links.get(source_filename, "")
+                file_statuses.append(dict(self.last_extraction_status))
+        else:
+            extracted_items = []
+
+        if not extracted_items:
+            per_file_items = []
+            per_file_statuses = []
+            for filename, content_type, data in uploads:
+                file_items = self._valid_receipt_items(
+                    self._extract_receipt_items(filename, content_type, data, inventory)
+                )
+                status = dict(self.last_extraction_status)
+                status["filename"] = filename
+                status["valid_items"] = len(file_items)
+                per_file_statuses.append(status)
+                receipt_link = self._upload_hsa_receipt_if_needed(filename, content_type, data, file_items)
+                for order in file_items:
+                    order["_source_filename"] = filename
+                    order["_receipt_link"] = receipt_link
+                per_file_items.extend(file_items)
+            extracted_items = per_file_items
+            file_statuses.extend(per_file_statuses)
 
         deduped_items = _dedupe_receipt_items(extracted_items)
         duplicates_removed = len(extracted_items) - len(deduped_items)
@@ -154,6 +189,13 @@ class ReceiptAnalysisAgent:
             "message": "未使用 Gemini 图片识别；已改用本地基础解析。",
         }
         return [self._heuristic_receipt_item(filename, text, inventory)]
+
+    def _can_extract_images_as_batch(self, uploads: list[tuple[str, str, bytes]]) -> bool:
+        return (
+            len(uploads) > 1
+            and bool(self.recommender.gemini_api_key)
+            and all(content_type.startswith("image/") for _filename, content_type, _data in uploads)
+        )
 
     @staticmethod
     def _valid_receipt_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -306,6 +348,95 @@ class ReceiptAnalysisAgent:
         text = payload["candidates"][0]["content"]["parts"][0]["text"]
         parsed = _parse_json(text)
         return parsed if isinstance(parsed, list) else [parsed]
+
+    def _extract_image_batch_with_gemini(
+        self,
+        uploads: list[tuple[str, str, bytes]],
+        inventory: list[InventoryItem],
+    ) -> list[dict[str, Any]]:
+        prompt = {
+            "instruction": (
+                "这些图片是同一个购物订单页面的连续截图，可能有上下重叠。"
+                "请把所有图片作为一个订单整体阅读，提取所有可见的已购买商品。"
+                "不要只提取家庭日用品；食品、零食、冷冻食品、个人护理用品等已购买商品都要提取。"
+                "每个商品单独输出一条，包含 product_title、quantity、price。"
+                "如果某个商品横跨两张图，只输出一次，并尽量合并完整标题、价格、数量。"
+                "不要把 Sponsored/广告/推荐商品、搜索栏、导航栏、购物车图标、shipping/delivered 状态文字当作购买商品。"
+                "若有 Replacement for 区块，只把实际被替换后的已购买商品作为主商品；被替换掉的原商品不要单独写入。"
+                "即使商品不是家庭补货清单中的常用品，也要提取。"
+            ),
+            "files": [
+                {"index": index, "filename": filename, "content_type": content_type}
+                for index, (filename, content_type, _data) in enumerate(uploads, start=1)
+            ],
+            "inventory_items": [item.model_dump() for item in inventory],
+            "schema": [
+                {
+                    "retailer": "string",
+                    "item_name": "string",
+                    "item_id": "string if matched else empty",
+                    "brand": "string",
+                    "product_title": "string",
+                    "quantity": "string",
+                    "price": "string",
+                    "shipping_address": "string if visible",
+                    "order_link": "",
+                    "source_filename": "filename where the item is most clearly visible",
+                }
+            ],
+        }
+        parts: list[dict[str, Any]] = [
+            {
+                "text": (
+                    "只输出 JSON array，不要 Markdown。"
+                    "请尽量不要漏掉列表中的商品；跨截图重复商品只输出一次。\n"
+                    + json.dumps(prompt, ensure_ascii=False)
+                )
+            }
+        ]
+        for filename, content_type, data in uploads:
+            encoded = base64.b64encode(data).decode("utf-8")
+            parts.append({"text": f"图片文件：{filename}"})
+            parts.append(
+                {
+                    "inlineData": {
+                        "mimeType": content_type,
+                        "data": encoded,
+                    }
+                }
+            )
+
+        url = (
+            "https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{self.recommender.gemini_model}:generateContent"
+        )
+        response = requests.post(
+            url,
+            params={"key": self.recommender.gemini_api_key},
+            json={
+                "contents": [{"parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.0,
+                    "responseMimeType": "application/json",
+                },
+            },
+            timeout=get_settings().gemini_timeout_seconds,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        text = payload["candidates"][0]["content"]["parts"][0]["text"]
+        parsed = _parse_json(text)
+        items = parsed if isinstance(parsed, list) else [parsed]
+        self.last_extraction_status = {
+            "method": "gemini_batch",
+            "gemini_configured": True,
+            "model": self.recommender.gemini_model,
+            "files": len(uploads),
+            "raw_items": len(items),
+            "valid_items": len(self._valid_receipt_items(items)),
+            "message": "Gemini 已按同一个订单合并读取多张截图。",
+        }
+        return items
 
     def _analyze_receipt_item(
         self, order: dict[str, Any], item: InventoryItem | None

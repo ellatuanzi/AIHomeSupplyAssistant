@@ -216,3 +216,96 @@ def test_receipt_batch_upload_dedupes_across_pictures():
     assert len(sheets.purchase_rows) == 1
     assert result["extraction_status"]["files"] == 2
     assert result["extraction_status"]["duplicates_removed"] == 1
+
+
+def test_receipt_batch_upload_uses_single_gemini_call(monkeypatch):
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": (
+                                        "["
+                                        '{"retailer":"Amazon","item_name":"Good Crisp Chips",'
+                                        '"item_id":"","brand":"The Good Crisp Company",'
+                                        '"product_title":"The Good Crisp Company Chips Potato Crinkle Cut Outback BBQ, 5.5 Ounce",'
+                                        '"quantity":"Qty: 1","price":"$3.00","shipping_address":"","order_link":"",'
+                                        '"source_filename":"page-1.png"},'
+                                        '{"retailer":"Amazon","item_name":"Good Crisp Chips",'
+                                        '"item_id":"","brand":"The Good Crisp Company",'
+                                        '"product_title":"The Good Crisp Company Chips Potato Crinkle Cut Outback BBQ, 5.5 Ounce",'
+                                        '"quantity":"Qty: 1","price":"$3.00","shipping_address":"","order_link":"",'
+                                        '"source_filename":"page-2.png"},'
+                                        '{"retailer":"Amazon","item_name":"Epic Artisanal Bone Broth",'
+                                        '"item_id":"","brand":"Epic",'
+                                        '"product_title":"Epic Artisanal Bone Broth, Homestyle Savory Chicken, 14 oz.",'
+                                        '"quantity":"Qty: 1","price":"$5.58","shipping_address":"","order_link":"",'
+                                        '"source_filename":"page-1.png"}'
+                                        "]"
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+
+    captured = {"calls": 0}
+
+    def fake_post(url, params, json, timeout):
+        captured["calls"] += 1
+        captured["json"] = json
+        return FakeResponse()
+
+    monkeypatch.setattr(receipt_analysis_agent.requests, "post", fake_post)
+
+    class FakeSheets:
+        def __init__(self):
+            self.purchase_rows = []
+            self.insight_rows = []
+
+        def ensure_tabs_and_headers(self):
+            return None
+
+        def get_inventory_items(self):
+            return []
+
+        def append_purchase_history_dict(self, row):
+            self.purchase_rows.append(row)
+
+        def append_order_insight_dict(self, row):
+            self.insight_rows.append(row)
+
+    class FakeHsaTracker:
+        def has_hsa_candidate(self, orders):
+            return False
+
+        def append_if_candidate(self, **kwargs):
+            return None
+
+    agent = ReceiptAnalysisAgent(
+        sheets=FakeSheets(),
+        recommender=SimpleNamespace(client=None, gemini_api_key="gemini-key", gemini_model="gemini-2.0-flash"),
+        hsa_tracker=FakeHsaTracker(),
+    )
+
+    result = agent.process_uploads_with_status(
+        [
+            ("page-1.png", "image/png", b"image-one"),
+            ("page-2.png", "image/png", b"image-two"),
+        ]
+    )
+
+    prompt_text = captured["json"]["contents"][0]["parts"][0]["text"]
+    assert captured["calls"] == 1
+    assert "同一个购物订单页面的连续截图" in prompt_text
+    assert "跨截图重复商品只输出一次" in prompt_text
+    assert len(result["insights"]) == 2
+    assert result["extraction_status"]["method"] == "batch"
+    assert result["extraction_status"]["duplicates_removed"] == 1
