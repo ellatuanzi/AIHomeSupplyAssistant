@@ -88,6 +88,14 @@ class FakeSheetsWithoutWetWipes(FakeSheets):
         ]
 
 
+class FakeSheetsWithCustomWetWipes(FakeSheetsWithoutWetWipes):
+    def __init__(self) -> None:
+        super().__init__()
+        self.created_items.append(
+            InventoryItem(item_id="custom_湿纸巾", item_name="湿纸巾", urgency_default="中")
+        )
+
+
 def test_voice_command_records_low_stock(monkeypatch):
     fake = FakeSheets()
     monkeypatch.setattr(routes, "sheets_service", lambda: fake)
@@ -169,6 +177,18 @@ def test_voice_command_creates_common_alias_item_with_standard_id(monkeypatch):
     assert fake.created_items[0].item_id == "wet_wipes"
     assert fake.created_items[0].item_name == "Wet Wipes"
     assert fake.task_rows[0][7] == "三层收纳柜"
+
+
+def test_voice_command_prefers_common_alias_over_custom_item(monkeypatch):
+    fake = FakeSheetsWithCustomWetWipes()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    result = routes._handle_voice_command("把湿纸巾拿到3层", dry_run=True)
+
+    assert result["status"] == "预览"
+    assert result["item_id"] == "wet_wipes"
+    assert result["item_name"] == "Wet Wipes"
+    assert result["target_location"] == "三层收纳柜"
 
 
 def test_voice_command_handles_brand_alias(monkeypatch):

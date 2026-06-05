@@ -1,6 +1,7 @@
 from html import escape
 import json
 import re
+from types import SimpleNamespace
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
@@ -438,10 +439,26 @@ def _create_common_alias_inventory_item(
     item_id: str,
     command: str,
     location: str = "",
+    dry_run: bool = False,
 ) -> Any | None:
-    if not item_id or not hasattr(sheets, "ensure_inventory_item"):
+    if not item_id:
         return None
     item_name = COMMON_ITEM_NAMES.get(item_id, item_id.replace("_", " ").title())
+    if dry_run:
+        return SimpleNamespace(
+            item_id=item_id,
+            item_name=item_name,
+            category="未分类",
+            preferred_brand="",
+            preferred_retailer="",
+            household_location=location,
+            typical_quantity="",
+            reorder_threshold="",
+            urgency_default="中",
+            notes=f"自动从常用别名创建，原始指令：{command}",
+        )
+    if not hasattr(sheets, "ensure_inventory_item"):
+        return None
     return sheets.ensure_inventory_item(
         item_id=item_id,
         item_name=item_name,
@@ -551,22 +568,44 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
     source_location, target_location = _find_source_target_locations(command)
     location = target_location or source_location or _find_location_in_text(command)
     note = f"语音指令：{command}"
+    alias_item_id = _match_common_alias_item_id(command)
     item = _match_voice_item(command, inventory)
     created_unknown_item = False
-    if not item:
-        alias_item_id = _match_common_alias_item_id(command)
-        if alias_item_id:
-            item = sheets.find_inventory_item(alias_item_id) if hasattr(sheets, "find_inventory_item") else None
-            if not item:
-                try:
-                    item = _create_common_alias_inventory_item(sheets, alias_item_id, command, location)
-                    created_unknown_item = bool(item)
-                except Exception as exc:
-                    return _voice_failure_result(f"无法自动创建常用商品，所以没有更新：{exc}", command, action)
+    should_prefer_common_alias = bool(
+        alias_item_id and (not item or item.item_id == alias_item_id or str(item.item_id).startswith("custom_"))
+    )
+    if should_prefer_common_alias:
+        existing_alias_item = (
+            sheets.find_inventory_item(alias_item_id)
+            if hasattr(sheets, "find_inventory_item")
+            else None
+        )
+        if existing_alias_item:
+            item = existing_alias_item
+        elif not item or str(item.item_id).startswith("custom_"):
+            try:
+                item = _create_common_alias_inventory_item(
+                    sheets,
+                    alias_item_id,
+                    command,
+                    location,
+                    dry_run=dry_run,
+                )
+                created_unknown_item = bool(item) and not dry_run
+            except Exception as exc:
+                return _voice_failure_result(f"无法自动创建常用商品，所以没有更新：{exc}", command, action)
     if not item:
         try:
-            item = _create_unknown_inventory_item(sheets, command, location)
-            created_unknown_item = bool(item)
+            item = (
+                SimpleNamespace(
+                    item_id=_slugify_item_name(_extract_unknown_item_name(command)),
+                    item_name=_extract_unknown_item_name(command),
+                    urgency_default="中",
+                )
+                if dry_run
+                else _create_unknown_inventory_item(sheets, command, location)
+            )
+            created_unknown_item = bool(item) and not dry_run
         except Exception as exc:
             return _voice_failure_result(f"无法自动创建未知商品，所以没有更新：{exc}", command, action)
     if not item:
