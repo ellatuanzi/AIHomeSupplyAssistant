@@ -349,6 +349,57 @@ def _match_voice_item(text: str, inventory: list[Any]) -> Any | None:
     return best
 
 
+def _slugify_item_name(name: str) -> str:
+    cleaned = name.strip().lower()
+    cleaned = re.sub(r"['’]", "", cleaned)
+    cleaned = re.sub(r"[^a-z0-9\u4e00-\u9fff]+", "_", cleaned)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    if not cleaned:
+        cleaned = "unknown_item"
+    return f"custom_{cleaned}"[:80]
+
+
+def _extract_unknown_item_name(text: str) -> str:
+    candidate = text.strip()
+    for location in _known_location_names():
+        candidate = candidate.replace(location, " ")
+    candidate = re.sub(
+        r"(低库存|没了|没有了|没有|空了|用完了|用完|快没了|快用完了|"
+        r"out of stock|out of|empty|low stock|low|"
+        r"创建|完成|任务|待办|todo|to do|把|从|拿到|搬到|移到|放到|补到|到)",
+        " ",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    candidate = re.sub(r"\s+", " ", candidate).strip(" ，。,.")
+    if "的" in candidate:
+        parts = [part.strip() for part in candidate.split("的") if part.strip()]
+        if parts:
+            candidate = parts[-1]
+    return candidate[:80].strip()
+
+
+def _create_unknown_inventory_item(
+    sheets: Any,
+    command: str,
+    location: str = "",
+) -> Any | None:
+    item_name = _extract_unknown_item_name(command)
+    if not item_name:
+        return None
+    item_id = _slugify_item_name(item_name)
+    if hasattr(sheets, "ensure_inventory_item"):
+        return sheets.ensure_inventory_item(
+            item_id=item_id,
+            item_name=item_name,
+            category="未分类",
+            household_location=location,
+            urgency_default="中",
+            notes=f"自动从语音/Chat 创建，原始指令：{command}",
+        )
+    return None
+
+
 def _voice_action(text: str) -> str:
     lowered = text.lower()
     if any(token in lowered for token in ["完成", "做好", "做完", "done", "finish", "finished"]):
@@ -393,17 +444,24 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
     except Exception as exc:
         return _voice_failure_result(f"无法读取 Google Sheet，所以没有更新：{exc}", command)
 
-    item = _match_voice_item(command, inventory)
-    if not item:
-        return _voice_failure_result(
-            f"没有从语音中识别到商品，所以没有更新 Google Sheet。听到的是：{command}",
-            command,
-        )
-
     action = _voice_action(command)
     source_location, target_location = _find_source_target_locations(command)
     location = target_location or source_location or _find_location_in_text(command)
     note = f"语音指令：{command}"
+    item = _match_voice_item(command, inventory)
+    created_unknown_item = False
+    if not item:
+        try:
+            item = _create_unknown_inventory_item(sheets, command, location)
+            created_unknown_item = bool(item)
+        except Exception as exc:
+            return _voice_failure_result(f"无法自动创建未知商品，所以没有更新：{exc}", command, action)
+    if not item:
+        return _voice_failure_result(
+            f"没有从语音中识别到商品，也无法抽取新商品名，所以没有更新 Google Sheet。听到的是：{command}",
+            command,
+            action,
+        )
 
     if dry_run:
         return {
@@ -418,6 +476,7 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
             "target_location": target_location,
             "message": "这是预览，没有更新 Google Sheet。",
             "recognized_text": command,
+            "created_unknown_item": created_unknown_item,
         }
 
     try:
@@ -441,8 +500,11 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
                     "source_location": source_location,
                     "target_location": target_location,
                     "recognized_text": command,
+                    "created_unknown_item": created_unknown_item,
                 }
             )
+            if created_unknown_item:
+                result["message"] = f"{result.get('message', '')} 已自动加入库存清单，分类为未分类。"
             return _mark_voice_success(result, updated=result.get("status") != "已存在")
 
         sheets.ensure_item_location(item.item_id, item.item_name, source_location, "语音")
@@ -455,7 +517,7 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
             completed = sheets.complete_open_task(item.item_id, target_location=target_location or location)
         except Exception as exc:
             return _voice_failure_result(f"更新待办任务失败，所以没有更新：{exc}", command, action)
-        return {
+        result = {
             "ok": bool(completed),
             "updated_google_sheet": bool(completed),
             "status": "已完成" if completed else "未找到",
@@ -471,7 +533,11 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
                 else f"没有找到 {item.item_name} 的待完成任务，所以没有更新。"
             ),
             "recognized_text": command,
+            "created_unknown_item": created_unknown_item,
         }
+        if created_unknown_item:
+            result["message"] = f"{result['message']} 已自动加入库存清单，分类为未分类。"
+        return result
 
     task_id = new_id("task")
     try:
@@ -492,7 +558,7 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
         )
     except Exception as exc:
         return _voice_failure_result(f"创建待办任务失败，所以没有更新：{exc}", command, action)
-    return _mark_voice_success({
+    result = {
         "status": "已创建",
         "action": action,
         "task_id": task_id,
@@ -503,7 +569,11 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
         "target_location": target_location,
         "message": f"已创建任务：把 {item.item_name} 从 {source_location or '未指定位置'} 拿到 {target_location or location or '未指定位置'}。",
         "recognized_text": command,
-    })
+        "created_unknown_item": created_unknown_item,
+    }
+    if created_unknown_item:
+        result["message"] = f"{result['message']} 已自动加入库存清单，分类为未分类。"
+    return _mark_voice_success(result)
 
 
 def _task_summary(tasks: list[dict[str, Any]], limit: int = 8) -> str:

@@ -287,6 +287,50 @@ class GoogleSheetsService:
     def find_inventory_item(self, item_id: str) -> InventoryItem | None:
         return next((item for item in self.get_inventory_items() if item.item_id == item_id), None)
 
+    def ensure_inventory_item(
+        self,
+        item_id: str,
+        item_name: str,
+        category: str = "未分类",
+        preferred_brand: str = "",
+        preferred_retailer: str = "",
+        household_location: str = "",
+        typical_quantity: str = "",
+        reorder_threshold: str = "",
+        urgency_default: str = "中",
+        notes: str = "",
+    ) -> InventoryItem:
+        existing = self.find_inventory_item(item_id)
+        if existing:
+            return existing
+        self.append_row(
+            SHEET_TABS["inventory"],
+            [
+                item_id,
+                item_name,
+                category,
+                preferred_brand,
+                preferred_retailer,
+                household_location,
+                typical_quantity,
+                reorder_threshold,
+                urgency_default,
+                notes,
+            ],
+        )
+        return InventoryItem(
+            item_id=item_id,
+            item_name=item_name,
+            category=category,
+            preferred_brand=preferred_brand,
+            preferred_retailer=preferred_retailer,
+            household_location=household_location,
+            typical_quantity=typical_quantity,
+            reorder_threshold=reorder_threshold,
+            urgency_default=urgency_default,
+            notes=notes,
+        )
+
     def append_low_stock_event(self, row: list[Any]) -> None:
         self.append_row(SHEET_TABS["events"], row)
 

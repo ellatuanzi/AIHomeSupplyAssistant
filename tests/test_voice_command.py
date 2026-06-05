@@ -7,6 +7,7 @@ class FakeSheets:
         self.low_stock_rows = []
         self.task_rows = []
         self.locations = []
+        self.created_items = []
         self.completed = False
         self.fail_append_low_stock = False
 
@@ -20,7 +21,42 @@ class FakeSheets:
         ]
 
     def find_inventory_item(self, item_id):
-        return next((item for item in self.get_inventory_items() if item.item_id == item_id), None)
+        return next(
+            (
+                item
+                for item in self.get_inventory_items() + self.created_items
+                if item.item_id == item_id
+            ),
+            None,
+        )
+
+    def ensure_inventory_item(
+        self,
+        item_id,
+        item_name,
+        category="未分类",
+        preferred_brand="",
+        preferred_retailer="",
+        household_location="",
+        typical_quantity="",
+        reorder_threshold="",
+        urgency_default="中",
+        notes="",
+    ):
+        item = InventoryItem(
+            item_id=item_id,
+            item_name=item_name,
+            category=category,
+            preferred_brand=preferred_brand,
+            preferred_retailer=preferred_retailer,
+            household_location=household_location,
+            typical_quantity=typical_quantity,
+            reorder_threshold=reorder_threshold,
+            urgency_default=urgency_default,
+            notes=notes,
+        )
+        self.created_items.append(item)
+        return item
 
     def ensure_item_location(self, item_id, item_name, location, source="", note=""):
         if location:
@@ -109,16 +145,18 @@ def test_voice_command_handles_brand_alias(monkeypatch):
     assert result["item_id"] == "kids_toothpaste"
 
 
-def test_voice_command_warns_when_item_is_not_matched(monkeypatch):
+def test_voice_command_creates_unknown_item_when_not_matched(monkeypatch):
     fake = FakeSheets()
     monkeypatch.setattr(routes, "sheets_service", lambda: fake)
 
     result = routes._handle_voice_command("主卧洗手间神秘东西低库存")
 
-    assert result["ok"] is False
-    assert result["updated_google_sheet"] is False
-    assert result["status"] == "未更新"
-    assert "没有从语音中识别到商品" in result["message"]
+    assert result["ok"] is True
+    assert result["updated_google_sheet"] is True
+    assert result["created_unknown_item"] is True
+    assert fake.created_items[0].item_name == "神秘东西"
+    assert fake.low_stock_rows[0][2] == "custom_神秘东西"
+    assert fake.low_stock_rows[0][3] == "神秘东西"
 
 
 def test_voice_command_warns_when_sheet_write_fails(monkeypatch):
