@@ -7,6 +7,14 @@ class FakeSheets:
         return []
 
 
+class FakeSheetsWithHistory:
+    def purchase_history(self):
+        return [
+            {"商品ID": "body_lotion", "价格": "$10.00"},
+            {"商品ID": "body_lotion", "价格": "$12.00"},
+        ]
+
+
 class FakeRecommender:
     def __init__(self):
         self.calls = []
@@ -70,3 +78,45 @@ def test_order_analysis_uses_recommender_json_without_openai_client():
     assert orders[0]["item_id"] == "body_lotion"
     assert insight["price_judgment"] == "价格接近常见区间。"
     assert [call[2] for call in recommender.calls] == [0.1, 0.2]
+
+
+class FallbackRecommender(FakeRecommender):
+    def generate_json(self, prompt, fallback, temperature=0.2):
+        self.calls.append((prompt, fallback, temperature))
+        return fallback
+
+
+def test_order_analysis_fallback_records_baseline_price_without_ai():
+    recommender = FallbackRecommender()
+    agent = OrderAnalysisAgent(sheets=FakeSheets(), gmail=FakeGmail(), recommender=recommender)
+    order = {
+        "item_id": "body_lotion",
+        "item_name": "Body Lotion",
+        "retailer": "Amazon",
+        "product_title": "CeraVe Daily Moisturizing Lotion",
+        "price": "$14.99",
+    }
+
+    insight = agent._analyze_order({"body": ""}, order, InventoryItem(item_id="body_lotion", item_name="Body Lotion"))
+
+    assert "AI 价格分析暂不可用" not in insight["price_judgment"]
+    assert "作为基准" in insight["price_judgment"]
+
+
+def test_order_analysis_fallback_compares_against_history():
+    recommender = FallbackRecommender()
+    agent = OrderAnalysisAgent(
+        sheets=FakeSheetsWithHistory(), gmail=FakeGmail(), recommender=recommender
+    )
+    order = {
+        "item_id": "body_lotion",
+        "item_name": "Body Lotion",
+        "retailer": "Amazon",
+        "product_title": "CeraVe Daily Moisturizing Lotion",
+        "price": "$15.00",
+    }
+
+    insight = agent._analyze_order({"body": ""}, order, InventoryItem(item_id="body_lotion", item_name="Body Lotion"))
+
+    assert "可能偏贵" in insight["price_judgment"]
+    assert "$15.00" in insight["price_judgment"]

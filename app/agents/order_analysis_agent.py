@@ -156,7 +156,7 @@ class OrderAnalysisAgent:
                 "summary": "中文一句话",
             },
         }
-        fallback = self._heuristic_analysis(order, item)
+        fallback = self._heuristic_analysis(order, item, matching_history)
         parsed = self.recommender.generate_json(prompt, fallback=fallback, temperature=0.2)
         return parsed if isinstance(parsed, dict) else fallback
 
@@ -290,9 +290,13 @@ class OrderAnalysisAgent:
         return orders
 
     def _heuristic_analysis(
-        self, order: dict[str, Any], item: InventoryItem | None
+        self,
+        order: dict[str, Any],
+        item: InventoryItem | None,
+        purchase_history: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         item_name = item.item_name if item else order.get("item_name", "未匹配商品")
+        price_judgment = _basic_price_judgment(order.get("price", ""), purchase_history or [])
         return {
             "item_id": item.item_id if item else order.get("item_id", ""),
             "item_name": item_name,
@@ -304,7 +308,7 @@ class OrderAnalysisAgent:
                 "address_category",
                 self._address_category(order.get("shipping_address", "")),
             ),
-            "price_judgment": "AI 价格分析暂不可用，无法做细致价格比较；已记录本次价格用于后续对比。",
+            "price_judgment": price_judgment,
             "restock_prediction": f"已把 {item_name} 写入购买历史，后续可结合低库存记录判断补货周期。",
             "health_or_fit_note": "尚未做成分或适用性判断；建议人工确认是否符合家庭偏好。",
             "better_suggestion": "后续可比较单位价格、规格和历史满意度后给出更好建议。",
@@ -433,6 +437,42 @@ def _price_from_line(line: str) -> str:
         flags=re.I,
     )
     return match.group(0).replace(" ", "").replace(",", ".") if match else ""
+
+
+def _basic_price_judgment(price: str, purchase_history: list[dict[str, Any]]) -> str:
+    current_price = _price_to_float(price)
+    historical_prices = [
+        parsed
+        for parsed in (_price_to_float(row.get("价格", "")) for row in purchase_history)
+        if parsed is not None
+    ]
+    if current_price is None:
+        return "本次价格未识别清楚；已记录订单，后续可补充价格后再比较。"
+    if not historical_prices:
+        return "暂无同商品历史价格可比；已记录本次价格，之后会作为基准。"
+
+    average = sum(historical_prices) / len(historical_prices)
+    if not average:
+        return "已记录本次价格；历史价格数据不足，暂不判断贵不贵。"
+
+    diff_ratio = (current_price - average) / average
+    if diff_ratio >= 0.15:
+        return f"本次约 ${current_price:.2f}，比历史均价 ${average:.2f} 高约 {diff_ratio:.0%}，可能偏贵。"
+    if diff_ratio <= -0.15:
+        return f"本次约 ${current_price:.2f}，比历史均价 ${average:.2f} 低约 {abs(diff_ratio):.0%}，价格不错。"
+    return f"本次约 ${current_price:.2f}，接近历史均价 ${average:.2f}，价格基本正常。"
+
+
+def _price_to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    match = re.search(r"\d+(?:[\.,]\d{1,2})?", str(value))
+    if not match:
+        return None
+    try:
+        return float(match.group(0).replace(",", "."))
+    except ValueError:
+        return None
 
 
 def _looks_like_product_title(value: str) -> bool:
