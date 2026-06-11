@@ -22,6 +22,182 @@ from app.utils.ids import new_id
 router = APIRouter()
 
 
+PUBLIC_PAGE_STYLE = """
+    body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #172033;
+        background: #faf9f5;
+        line-height: 1.6;
+    }
+    main {
+        max-width: 820px;
+        margin: 0 auto;
+        padding: 56px 22px 72px;
+    }
+    h1 {
+        margin: 0 0 16px;
+        font-size: clamp(2rem, 5vw, 3.25rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+    }
+    h2 {
+        margin-top: 32px;
+        font-size: 1.25rem;
+    }
+    p, li {
+        font-size: 1rem;
+        color: #3f4a5f;
+    }
+    a {
+        color: #0f5e7a;
+        font-weight: 700;
+    }
+    .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin-top: 28px;
+    }
+    .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 16px;
+        border-radius: 8px;
+        background: #111827;
+        color: #fff;
+        text-decoration: none;
+    }
+    .secondary {
+        background: transparent;
+        color: #111827;
+        border: 1px solid #c9d2df;
+    }
+"""
+
+
+@router.get("/", response_class=HTMLResponse)
+def public_home() -> str:
+    return f"""
+    <!doctype html>
+    <html lang="zh-Hans">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>家庭 AI 补货助手</title>
+        <style>{PUBLIC_PAGE_STYLE}</style>
+      </head>
+      <body>
+        <main>
+          <h1>家庭 AI 补货助手</h1>
+          <p>
+            这是一个私人使用的家庭补货和订单整理工具，用来记录低库存提醒、
+            家庭待办、购物小票和 Gmail 订单摘要。系统不会自动购买任何商品；
+            所有下单都需要人工确认。
+          </p>
+          <div class="actions">
+            <a class="button" href="/chat">打开助手</a>
+            <a class="button secondary" href="/privacy">隐私政策</a>
+            <a class="button secondary" href="/terms">服务条款</a>
+          </div>
+        </main>
+      </body>
+    </html>
+    """
+
+
+@router.get("/privacy", response_class=HTMLResponse)
+def privacy_policy() -> str:
+    return f"""
+    <!doctype html>
+    <html lang="zh-Hans">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>隐私政策 - 家庭 AI 补货助手</title>
+        <style>{PUBLIC_PAGE_STYLE}</style>
+      </head>
+      <body>
+        <main>
+          <h1>隐私政策</h1>
+          <p>最后更新：2026-06-10</p>
+          <p>
+            家庭 AI 补货助手是一个私人家庭工具，用于帮助记录补货提醒、
+            待办事项、购物小票和订单摘要。
+          </p>
+          <h2>我们访问的数据</h2>
+          <ul>
+            <li>Google Sheets：作为家庭库存、低库存事件、购买历史和任务的记录表。</li>
+            <li>Gmail：只用于读取和整理与订单相关的邮件，并发送每日摘要邮件。</li>
+            <li>上传的小票或截图：用于提取商品名称、价格、数量和店铺信息。</li>
+          </ul>
+          <h2>数据如何使用</h2>
+          <p>
+            数据仅用于生成家庭补货建议、订单分析、价格记录、HSA/FSA 候选记录
+            和每日摘要。系统不会自动下单或进行任何购买。
+          </p>
+          <h2>数据共享</h2>
+          <p>
+            本工具不会出售个人数据。必要时，用户提供的内容可能会发送给配置的
+            AI 服务，用于生成结构化摘要和建议。
+          </p>
+          <h2>数据控制</h2>
+          <p>
+            Google Sheets 是主要记录来源。用户可以在 Google Sheets、Gmail、
+            Google Account 权限页面和 Render 环境变量中删除或撤销相关数据与授权。
+          </p>
+          <h2>联系方式</h2>
+          <p>如有问题，请联系：jessica.wyn@gmail.com</p>
+        </main>
+      </body>
+    </html>
+    """
+
+
+@router.get("/terms", response_class=HTMLResponse)
+def terms_of_service() -> str:
+    return f"""
+    <!doctype html>
+    <html lang="zh-Hans">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>服务条款 - 家庭 AI 补货助手</title>
+        <style>{PUBLIC_PAGE_STYLE}</style>
+      </head>
+      <body>
+        <main>
+          <h1>服务条款</h1>
+          <p>最后更新：2026-06-10</p>
+          <p>
+            家庭 AI 补货助手用于私人家庭补货、订单整理和待办记录。
+            使用本工具即表示你理解以下限制。
+          </p>
+          <h2>人工确认</h2>
+          <p>
+            本工具只提供记录、整理和建议，不会自动购买商品。任何购物、付款、
+            checkout 或订阅行为都必须由用户人工确认。
+          </p>
+          <h2>建议的限制</h2>
+          <p>
+            价格、健康、适用性和补货建议可能不完整或不准确。用户应自行确认商品、
+            价格、配送地址和家庭适用性。
+          </p>
+          <h2>可用性</h2>
+          <p>
+            该工具依赖 Render、Google APIs、Gmail、Google Sheets 和第三方 AI 服务。
+            服务可能因授权、网络、配额或供应商限制而中断。
+          </p>
+          <h2>联系方式</h2>
+          <p>如有问题，请联系：jessica.wyn@gmail.com</p>
+        </main>
+      </body>
+    </html>
+    """
+
+
 COMMON_ITEM_ALIASES = {
     "toilet_paper": [
         "手纸",
