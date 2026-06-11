@@ -48,7 +48,7 @@ class DailySendGuard:
                     "是" if result.get("email_sent") else "否",
                     result.get("recommendations_created", 0),
                     result.get("order_insights_created", 0),
-                    "已检查并按需发送；当天不再重复发送。",
+                    "已完成每日检查；摘要在 app/chat 页面显示，当天不再重复运行。",
                 ]
             )
             return {"date": today, **result}

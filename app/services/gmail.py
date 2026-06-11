@@ -8,13 +8,17 @@ import re
 from googleapiclient.discovery import build
 
 from app.config import get_settings
-from app.services.google_auth import get_google_credentials
+from app.services.google_auth import BASE_SCOPES, GMAIL_SEND_SCOPE, get_google_credentials
 
 
 class GmailService:
-    def __init__(self) -> None:
+    def __init__(self, scopes: list[str] | None = None) -> None:
         self.settings = get_settings()
-        self.client = build("gmail", "v1", credentials=get_google_credentials())
+        self.client = build(
+            "gmail",
+            "v1",
+            credentials=get_google_credentials(scopes or BASE_SCOPES + [GMAIL_SEND_SCOPE]),
+        )
 
     def send_email(self, subject: str, body: str, to_email: str | None = None) -> None:
         sender = self.settings.gmail_sender_email

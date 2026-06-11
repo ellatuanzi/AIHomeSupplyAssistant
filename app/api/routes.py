@@ -94,7 +94,7 @@ def public_home() -> str:
           <h1>家庭 AI 补货助手</h1>
           <p>
             这是一个私人使用的家庭补货和订单整理工具，用来记录低库存提醒、
-            家庭待办、购物小票和 Gmail 订单摘要。系统不会自动购买任何商品；
+            家庭待办、购物小票和页面摘要。系统不会自动购买任何商品；
             所有下单都需要人工确认。
           </p>
           <div class="actions">
@@ -130,7 +130,6 @@ def privacy_policy() -> str:
           <h2>我们访问的数据</h2>
           <ul>
             <li>Google Sheets：作为家庭库存、低库存事件、购买历史和任务的记录表。</li>
-            <li>Gmail：只用于读取和整理与订单相关的邮件，并发送每日摘要邮件。</li>
             <li>上传的小票或截图：用于提取商品名称、价格、数量和店铺信息。</li>
           </ul>
           <h2>数据如何使用</h2>
@@ -145,7 +144,7 @@ def privacy_policy() -> str:
           </p>
           <h2>数据控制</h2>
           <p>
-            Google Sheets 是主要记录来源。用户可以在 Google Sheets、Gmail、
+            Google Sheets 是主要记录来源。用户可以在 Google Sheets、
             Google Account 权限页面和 Render 环境变量中删除或撤销相关数据与授权。
           </p>
           <h2>联系方式</h2>
@@ -975,6 +974,52 @@ def _recommendation_summary(recommendations: list[dict[str, Any]], limit: int = 
     return "\n".join(lines)
 
 
+def _daily_summary(sheets: GoogleSheetsService) -> dict[str, Any]:
+    tasks = sheets.pending_tasks()
+    events = sheets.unresolved_events()
+    recommendations = sheets.recommendations()
+    pending_recommendations = [
+        row
+        for row in recommendations
+        if row.get("补货状态", "").strip() not in {"已下单", "已购买", "已处理", "跳过"}
+    ]
+    recent_order_insights = list(reversed(sheets.order_insights()))[:6]
+    sections = [
+        "今日摘要",
+        "",
+        f"待办：{len(tasks)} 个",
+        _task_summary(tasks, limit=5),
+        "",
+        f"低库存：{len(events)} 条",
+        _event_summary(events, limit=5),
+        "",
+        f"待确认补货推荐：{len(pending_recommendations)} 条",
+        _recommendation_summary(recommendations, limit=5),
+    ]
+    if recent_order_insights:
+        sections.extend(["", "最近小票/订单记录："])
+        for insight in recent_order_insights:
+            sections.append(
+                " - ".join(
+                    part
+                    for part in [
+                        insight.get("商品名称", "未命名商品"),
+                        insight.get("店铺", ""),
+                        insight.get("价格", ""),
+                    ]
+                    if part
+                )
+            )
+    sections.extend(["", "提醒：系统不会自动购买任何商品。"])
+    return {
+        "text": "\n".join(sections),
+        "pending_tasks_count": len(tasks),
+        "low_stock_count": len(events),
+        "pending_recommendations_count": len(pending_recommendations),
+        "recent_order_insights_count": len(recent_order_insights),
+    }
+
+
 def _inventory_answer(message: str, sheets: GoogleSheetsService) -> str | None:
     item = _match_voice_item(message, sheets.get_inventory_items())
     if not item:
@@ -1042,6 +1087,14 @@ def _handle_chat_message(message: str, dry_run: bool = False) -> dict[str, Any]:
 
     try:
         sheets = sheets_service()
+        if any(token in text for token in ["摘要", "总结", "今日"]) or any(
+            token in text.lower() for token in ["summary", "daily"]
+        ) and _is_read_query(text):
+            return {
+                "ok": True,
+                "message": _daily_summary(sheets)["text"],
+                "updated_google_sheet": False,
+            }
         if any(token in text.lower() for token in ["todo", "to do", "task"]) or any(
             token in text for token in ["待办", "任务", "要做"]
         ) and _is_read_query(text):
@@ -1112,6 +1165,7 @@ def _chat_state() -> dict[str, Any]:
         "pending_tasks": tasks,
         "unresolved_events": events,
         "pending_recommendations": recommendations,
+        "daily_summary": _daily_summary(sheets),
     }
 
 
@@ -1288,12 +1342,25 @@ def chat_entry() -> HTMLResponse:
                 line-height: 1.45;
                 white-space: pre-wrap;
               }
+              .summary {
+                white-space: pre-wrap;
+                line-height: 1.5;
+                color: #344054;
+                background: #fbfbf8;
+                border: 1px solid #ecece7;
+                border-radius: 8px;
+                padding: 12px;
+              }
             </style>
           </head>
           <body>
             <main>
               <h1>家庭补货 Chat</h1>
               <p class="subtle">可以查询 Google Sheet，也可以直接更新低库存和待办。系统不会自动购买。</p>
+              <section class="panel">
+                <h2>今日摘要</h2>
+                <div id="daily-summary" class="summary">加载中...</div>
+              </section>
               <section class="panel">
                 <h2>待办列表</h2>
                 <div id="tasks">加载中...</div>
@@ -1328,6 +1395,7 @@ def chat_entry() -> HTMLResponse:
             </main>
             <script>
               const tasksEl = document.getElementById('tasks');
+              const dailySummaryEl = document.getElementById('daily-summary');
               const messagesEl = document.getElementById('messages');
               const form = document.getElementById('chat-form');
               const input = document.getElementById('message');
@@ -1360,13 +1428,19 @@ def chat_entry() -> HTMLResponse:
                 }).join('');
               }
 
+              function renderDailySummary(summary) {
+                dailySummaryEl.textContent = summary && summary.text ? summary.text : '暂无摘要。';
+              }
+
               async function refreshState() {
                 try {
                   const response = await fetch('/chat/state');
                   const data = await response.json();
                   renderTasks(data.pending_tasks || []);
+                  renderDailySummary(data.daily_summary || {});
                 } catch (error) {
                   tasksEl.textContent = `无法读取待办：${error}`;
+                  dailySummaryEl.textContent = `无法读取摘要：${error}`;
                 }
               }
 
@@ -1941,6 +2015,12 @@ def run_daily_agent_if_due() -> dict[str, object]:
 
 @router.post("/agent/order-analysis")
 def run_order_analysis_agent() -> dict[str, object]:
+    if not get_settings().enable_gmail_order_analysis:
+        return {
+            "status": "跳过",
+            "reason": "Gmail 订单读取已关闭；请使用 /chat 页面的小票/截图上传补录订单。",
+            "order_insights_created": 0,
+        }
     insights = OrderAnalysisAgent().run()
     return {"status": "完成", "order_insights_created": len(insights)}
 

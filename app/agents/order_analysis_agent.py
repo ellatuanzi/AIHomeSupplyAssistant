@@ -5,6 +5,7 @@ from typing import Any
 
 from app.models.inventory import InventoryItem
 from app.services.gmail import GmailService
+from app.services.google_auth import BASE_SCOPES, GMAIL_READONLY_SCOPE
 from app.services.google_sheets import GoogleSheetsService
 from app.services.hsa_tracker import HsaTrackerService
 from app.services.openai_client import OpenAIRecommendationService
@@ -21,7 +22,7 @@ class OrderAnalysisAgent:
         hsa_tracker: HsaTrackerService | None = None,
     ) -> None:
         self.sheets = sheets or GoogleSheetsService()
-        self.gmail = gmail or GmailService()
+        self.gmail = gmail or GmailService(scopes=BASE_SCOPES + [GMAIL_READONLY_SCOPE])
         self.recommender = recommender or OpenAIRecommendationService()
         self.hsa_tracker = hsa_tracker
         self.default_shipping_address = self.gmail.settings.default_shipping_address

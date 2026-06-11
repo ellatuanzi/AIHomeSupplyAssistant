@@ -12,9 +12,10 @@ from app.config import get_settings
 
 BASE_SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/gmail.send",
-    "https://www.googleapis.com/auth/gmail.readonly",
 ]
+
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 
 DRIVE_SCOPES = [
     "https://www.googleapis.com/auth/drive.file",

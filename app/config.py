@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: float = 20
 
+    enable_gmail_order_analysis: bool = False
+    enable_email_summary: bool = False
+
     retail_search_mode: str = "search_urls"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")

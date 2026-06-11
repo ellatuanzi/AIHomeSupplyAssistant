@@ -28,6 +28,10 @@ services:
         value: false
       - key: ORDER_ANALYSIS_TIMEOUT_SECONDS
         value: 600
+      - key: ENABLE_GMAIL_ORDER_ANALYSIS
+        value: false
+      - key: ENABLE_EMAIL_SUMMARY
+        value: false
       - key: DEFAULT_SHIPPING_ADDRESS
         sync: false
       - key: ORDER_EMAIL_QUERY
@@ -78,6 +82,10 @@ services:
         value: false
       - key: ORDER_ANALYSIS_TIMEOUT_SECONDS
         value: 600
+      - key: ENABLE_GMAIL_ORDER_ANALYSIS
+        value: false
+      - key: ENABLE_EMAIL_SUMMARY
+        value: false
       - key: DEFAULT_SHIPPING_ADDRESS
         sync: false
       - key: ORDER_EMAIL_QUERY

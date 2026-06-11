@@ -59,6 +59,9 @@ class FakeSheets:
             return ["主卧洗手间", "车库"]
         return []
 
+    def order_insights(self):
+        return []
+
     def ensure_item_location(self, item_id, item_name, location, source="", note=""):
         pass
 
@@ -101,3 +104,27 @@ def test_chat_can_update_low_stock(monkeypatch):
     assert result["updated_google_sheet"] is True
     assert result["action"] == "low_stock"
     assert fake.low_stock_rows[0][3] == "Toilet Paper"
+
+
+def test_chat_state_includes_daily_summary(monkeypatch):
+    fake = FakeSheets()
+    monkeypatch.setattr(routes, "sheets_service", lambda: fake)
+
+    state = routes._chat_state()
+
+    assert "daily_summary" in state
+    assert "今日摘要" in state["daily_summary"]["text"]
+    assert state["daily_summary"]["pending_tasks_count"] == 1
+
+
+def test_order_analysis_endpoint_skips_when_gmail_disabled(monkeypatch):
+    class ExplodingOrderAnalysisAgent:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("Gmail order analysis should not be instantiated")
+
+    monkeypatch.setattr(routes, "OrderAnalysisAgent", ExplodingOrderAnalysisAgent)
+
+    result = routes.run_order_analysis_agent()
+
+    assert result["status"] == "跳过"
+    assert result["order_insights_created"] == 0

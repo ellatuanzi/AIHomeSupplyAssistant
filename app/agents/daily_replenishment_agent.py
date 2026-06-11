@@ -5,6 +5,7 @@ from typing import Any
 
 from app.agents.email_summary_agent import EmailSummaryAgent
 from app.agents.order_analysis_agent import OrderAnalysisAgent
+from app.config import get_settings
 from app.models.recommendations import Recommendation
 from app.services.gmail import GmailService
 from app.services.google_sheets import GoogleSheetsService
@@ -28,6 +29,7 @@ class DailyReplenishmentAgent:
         self.gmail = gmail
 
     def run(self, send_email: bool = True) -> dict[str, Any]:
+        settings = get_settings()
         self.sheets.ensure_tabs_and_headers()
         inventory = {item.item_id: item for item in self.sheets.get_inventory_items()}
         unresolved_events = self.sheets.unresolved_events()
@@ -86,14 +88,14 @@ class DailyReplenishmentAgent:
 
         email_sent = False
         order_insights = []
-        if send_email:
+        if settings.enable_gmail_order_analysis:
             order_insights = OrderAnalysisAgent(
                 sheets=self.sheets,
                 gmail=self.gmail,
                 recommender=self.recommender,
             ).run()
 
-        if send_email:
+        if send_email and settings.enable_email_summary:
             pending_recommendations = self.sheets.recommendations()
             pending_tasks = self.sheets.pending_tasks()
             email_agent = EmailSummaryAgent()
@@ -112,6 +114,8 @@ class DailyReplenishmentAgent:
             "items_reviewed": len(events_by_item),
             "recommendations_created": len(created_recommendations),
             "order_insights_created": len(order_insights),
-            "pending_tasks": len(self.sheets.pending_tasks()) if send_email else 0,
+            "pending_tasks": len(self.sheets.pending_tasks()),
             "email_sent": email_sent,
+            "gmail_order_analysis_enabled": settings.enable_gmail_order_analysis,
+            "email_summary_enabled": settings.enable_email_summary,
         }
