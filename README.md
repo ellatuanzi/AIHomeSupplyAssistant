@@ -231,22 +231,20 @@ python scripts/run_due_daily_agent.py
 
 ```text
 GOOGLE_SHEET_ID
-GOOGLE_OAUTH_CLIENT_JSON
-GOOGLE_TOKEN_JSON
+GOOGLE_SERVICE_ACCOUNT_JSON
 GEMINI_API_KEY
 OPENAI_API_KEY
 ```
 
 默认配置不会读取 Gmail，也不会发送每日邮件。每日摘要显示在 `/chat` 页面。
+Google Sheets 推荐使用 service account：把 Sheet 分享给 service account 邮箱，
+再把下载的 JSON key 完整粘贴到 Render 的 `GOOGLE_SERVICE_ACCOUNT_JSON`。
+
 如果以后要重新启用 Gmail 订单读取或 Gmail 发信，再额外配置
-`ENABLE_GMAIL_ORDER_ANALYSIS=true` 或 `ENABLE_EMAIL_SUMMARY=true`，并重新生成带 Gmail 权限的
-`GOOGLE_TOKEN_JSON`。
+`ENABLE_GMAIL_ORDER_ANALYSIS=true` 或 `ENABLE_EMAIL_SUMMARY=true`，并使用 OAuth fallback。
 
-本地运行下面命令，可以把 Google OAuth 文件和 token 转成适合粘贴到 Render 的环境变量值：
-
-```bash
-python scripts/print_render_env.py
-```
+旧 OAuth 变量 `GOOGLE_OAUTH_CLIENT_JSON` 和 `GOOGLE_TOKEN_JSON` 仍可作为 fallback，
+但默认不再需要。
 
 部署完成后，把 NFC 标签里的 URL 改成 Render 域名：
 
@@ -508,15 +506,15 @@ Recommended steps:
 
 ```text
 GOOGLE_SHEET_ID
-GOOGLE_OAUTH_CLIENT_JSON
-GOOGLE_TOKEN_JSON
-GMAIL_SENDER_EMAIL
-DAILY_SUMMARY_TO_EMAIL
+GOOGLE_SERVICE_ACCOUNT_JSON
 DEFAULT_SHIPPING_ADDRESS
+GEMINI_API_KEY
 OPENAI_API_KEY
 ```
 
-Generate OAuth environment values locally:
+The default setup does not read Gmail and does not send email. The daily summary is shown on
+`/chat`. Share the Google Sheet with the service account email, then paste the downloaded JSON
+key into Render as `GOOGLE_SERVICE_ACCOUNT_JSON`.
 
 ```bash
 python scripts/print_render_env.py

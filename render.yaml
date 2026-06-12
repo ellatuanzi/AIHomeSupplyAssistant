@@ -40,6 +40,8 @@ services:
         sync: false
       - key: GOOGLE_TOKEN_JSON
         sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
       - key: GOOGLE_OAUTH_CLIENT_JSON
         sync: false
       - key: GMAIL_SENDER_EMAIL
@@ -93,6 +95,8 @@ services:
       - key: GOOGLE_SHEET_ID
         sync: false
       - key: GOOGLE_TOKEN_JSON
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false
       - key: GOOGLE_OAUTH_CLIENT_JSON
         sync: false

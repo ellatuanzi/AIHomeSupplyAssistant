@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     google_token_file: str = "credentials/google_token.json"
     google_oauth_client_json: str = Field(default="", repr=False)
     google_token_json: str = Field(default="", repr=False)
+    google_service_account_json: str = Field(default="", repr=False)
     hsa_sheet_id: str = ""
     hsa_sheet_name: str = "HSA 候选记录"
     hsa_keywords: str = (

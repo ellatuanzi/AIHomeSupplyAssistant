@@ -26,7 +26,7 @@ def google_auth_exception_handler(request, exc: Exception) -> JSONResponse:
         content={
             "status": "Google OAuth 授权错误",
             "detail": str(exc),
-            "next_step": "请重新生成 GOOGLE_TOKEN_JSON，并在 Render 保存后重新部署。",
+            "next_step": "请检查 GOOGLE_SERVICE_ACCOUNT_JSON 是否完整，并确认 Google Sheet 已分享给 service account 邮箱。",
         },
     )
 

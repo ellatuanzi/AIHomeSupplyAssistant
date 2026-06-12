@@ -3,6 +3,7 @@ import os
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
+from google.oauth2 import service_account
 from google.oauth2.credentials import Credentials
 from google.oauth2.credentials import Credentials as OAuthCredentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -30,6 +31,15 @@ def get_google_credentials(scopes: list[str] | None = None) -> Credentials:
     settings = get_settings()
     token_path = Path(settings.google_token_file)
     credentials_path = Path(settings.google_credentials_file)
+
+    if settings.google_service_account_json:
+        return service_account.Credentials.from_service_account_info(
+            _json_from_env(
+                settings.google_service_account_json,
+                name="GOOGLE_SERVICE_ACCOUNT_JSON",
+            ),
+            scopes=requested_scopes,
+        )
 
     creds = None
     if settings.google_token_json:
@@ -82,7 +92,7 @@ def _running_on_render() -> bool:
     return bool(os.environ.get("RENDER") or os.environ.get("RENDER_SERVICE_ID"))
 
 
-def _json_from_env(value: str) -> dict:
+def _json_from_env(value: str, name: str = "GOOGLE_TOKEN_JSON") -> dict:
     import base64
     import json
 
@@ -101,7 +111,7 @@ def _json_from_env(value: str) -> dict:
             return json.loads(base64.b64decode(padded).decode("utf-8"))
         except Exception as exc:
             raise RuntimeError(
-                "GOOGLE_TOKEN_JSON 格式无效。请粘贴完整的一行 JSON，"
+                f"{name} 格式无效。请粘贴完整的一行 JSON，"
                 "从 { 开始到 } 结束；不要粘贴文件名、说明文字或被截断的内容。"
             ) from exc
 
