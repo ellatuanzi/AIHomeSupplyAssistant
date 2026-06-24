@@ -9,7 +9,7 @@ def test_receipt_upload_page_has_camera_input():
     response = routes.receipt_upload_entry()
     html = response.body.decode("utf-8")
 
-    assert "上传补货记录" in html
+    assert "上传小票/订单截图" in html
     assert "本地上传 / 相册选择" in html
     assert 'accept="image/*,.pdf,.txt"' in html
     assert 'capture="environment"' in html
@@ -20,7 +20,7 @@ def test_chat_page_includes_receipt_upload():
     response = routes.chat_entry()
     html = response.body.decode("utf-8")
 
-    assert "补货记录" in html
+    assert "拍照补录" in html
     assert "本地上传 / 相册选择" in html
     assert "receipt-form" in html
     assert "fetch('/receipts/upload'" in html

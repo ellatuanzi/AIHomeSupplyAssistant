@@ -2,158 +2,127 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import json
+from pathlib import Path
+import sqlite3
 from typing import Any
-
-from googleapiclient.discovery import build
 
 from app.config import get_settings
 from app.models.inventory import InventoryItem
-from app.services.google_auth import get_google_credentials
-from app.services.sheet_schema import HEADERS, SHEET_TABS
+from app.services.sheet_schema import DEFAULT_INVENTORY_ROWS, HEADERS, SHEET_TABS
 from app.utils.dates import now_local
 
 
 @dataclass
-class GoogleSheetsService:
+class LocalDatabaseService:
     sheet_id: str | None = None
-
-    def __new__(cls, *args: Any, **kwargs: Any):
-        if cls is GoogleSheetsService and not get_settings().use_google_sheets:
-            from app.services.local_database import LocalDatabaseService
-
-            return LocalDatabaseService(*args, **kwargs)
-        return super().__new__(cls)
 
     def __post_init__(self) -> None:
         settings = get_settings()
-        self.sheet_id = self.sheet_id or settings.google_sheet_id
-        if not self.sheet_id:
-            raise RuntimeError("缺少 GOOGLE_SHEET_ID，请在 .env 中配置 Google Sheet ID。")
-        self.client = build("sheets", "v4", credentials=get_google_credentials())
+        self.database_path = Path(settings.database_path)
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        self.ensure_tabs_and_headers()
 
-    def read_rows(self, tab_name: str) -> list[dict[str, Any]]:
-        values = (
-            self.client.spreadsheets()
-            .values()
-            .get(spreadsheetId=self.sheet_id, range=f"{tab_name}!A:Z")
-            .execute()
-            .get("values", [])
-        )
-        if not values:
-            return []
-        headers = values[0]
-        return [dict(zip(headers, row + [""] * (len(headers) - len(row)))) for row in values[1:]]
-
-    def read_values(self, tab_name: str) -> list[list[Any]]:
-        return (
-            self.client.spreadsheets()
-            .values()
-            .get(spreadsheetId=self.sheet_id, range=f"{tab_name}!A:Z")
-            .execute()
-            .get("values", [])
-        )
-
-    def append_row(self, tab_name: str, row: list[Any]) -> None:
-        self.client.spreadsheets().values().append(
-            spreadsheetId=self.sheet_id,
-            range=f"{tab_name}!A:Z",
-            valueInputOption="USER_ENTERED",
-            insertDataOption="INSERT_ROWS",
-            body={"values": [row]},
-        ).execute()
-
-    def append_dict_row(self, tab_name: str, row: dict[str, Any]) -> None:
-        values = self.read_values(tab_name)
-        if not values:
-            raise RuntimeError(f"{tab_name} 缺少表头，请先运行 ensure_tabs_and_headers。")
-        headers = values[0]
-        self.append_row(tab_name, [row.get(header, "") for header in headers])
-
-    def update_cell(self, tab_name: str, row_number: int, column_letter: str, value: Any) -> None:
-        self.client.spreadsheets().values().update(
-            spreadsheetId=self.sheet_id,
-            range=f"{tab_name}!{column_letter}{row_number}",
-            valueInputOption="USER_ENTERED",
-            body={"values": [[value]]},
-        ).execute()
-
-    def update_row_by_headers(self, tab_name: str, row_number: int, updates: dict[str, Any]) -> None:
-        values = self.read_values(tab_name)
-        if not values:
-            raise RuntimeError(f"{tab_name} 缺少表头。")
-        headers = values[0]
-        existing_row = values[row_number - 1] if len(values) >= row_number else []
-        row = existing_row + [""] * (len(headers) - len(existing_row))
-        for header, value in updates.items():
-            if header in headers:
-                row[headers.index(header)] = value
-        self.client.spreadsheets().values().update(
-            spreadsheetId=self.sheet_id,
-            range=f"{tab_name}!A{row_number}:{_column_name(len(headers))}{row_number}",
-            valueInputOption="USER_ENTERED",
-            body={"values": [row]},
-        ).execute()
-
-    def delete_rows(self, tab_name: str, row_numbers: list[int]) -> None:
-        if not row_numbers:
-            return
-        spreadsheet = self.client.spreadsheets().get(spreadsheetId=self.sheet_id).execute()
-        sheet_id = next(
-            sheet["properties"]["sheetId"]
-            for sheet in spreadsheet.get("sheets", [])
-            if sheet["properties"]["title"] == tab_name
-        )
-        requests = [
-            {
-                "deleteDimension": {
-                    "range": {
-                        "sheetId": sheet_id,
-                        "dimension": "ROWS",
-                        "startIndex": row_number - 1,
-                        "endIndex": row_number,
-                    }
-                }
-            }
-            for row_number in sorted(row_numbers, reverse=True)
-        ]
-        self.client.spreadsheets().batchUpdate(
-            spreadsheetId=self.sheet_id, body={"requests": requests}
-        ).execute()
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.database_path)
+        conn.row_factory = sqlite3.Row
+        return conn
 
     def ensure_tabs_and_headers(self) -> None:
-        spreadsheet = self.client.spreadsheets().get(spreadsheetId=self.sheet_id).execute()
-        existing_tabs = {
-            sheet["properties"]["title"] for sheet in spreadsheet.get("sheets", [])
-        }
-        requests = [
-            {"addSheet": {"properties": {"title": tab_name}}}
-            for tab_name in HEADERS
-            if tab_name not in existing_tabs
-        ]
-        if requests:
-            self.client.spreadsheets().batchUpdate(
-                spreadsheetId=self.sheet_id, body={"requests": requests}
-            ).execute()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sheet_rows (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tab_name TEXT NOT NULL,
+                    row_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sheet_rows_tab ON sheet_rows(tab_name, id)"
+            )
+        if not self.read_rows(SHEET_TABS["inventory"]):
+            for row in DEFAULT_INVENTORY_ROWS:
+                self.append_row(SHEET_TABS["inventory"], row)
 
-        for tab_name, headers in HEADERS.items():
-            values = self.read_values(tab_name)
-            if not values:
-                self.append_row(tab_name, headers)
-            else:
-                existing_headers = values[0]
-                missing_headers = [header for header in headers if header not in existing_headers]
-                if missing_headers:
-                    self.client.spreadsheets().values().update(
-                        spreadsheetId=self.sheet_id,
-                        range=f"{tab_name}!A1:{_column_name(len(existing_headers) + len(missing_headers))}1",
-                        valueInputOption="USER_ENTERED",
-                        body={"values": [existing_headers + missing_headers]},
-                    ).execute()
+    def read_rows(self, tab_name: str) -> list[dict[str, Any]]:
+        self._ensure_known_tab(tab_name)
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT row_json FROM sheet_rows WHERE tab_name = ? ORDER BY id",
+                (tab_name,),
+            ).fetchall()
+        return [json.loads(row["row_json"]) for row in rows]
+
+    def read_values(self, tab_name: str) -> list[list[Any]]:
+        headers = self._headers(tab_name)
+        values = [headers]
+        for row in self.read_rows(tab_name):
+            values.append([row.get(header, "") for header in headers])
+        return values
+
+    def append_row(self, tab_name: str, row: list[Any]) -> None:
+        headers = self._headers(tab_name)
+        row_dict = {
+            header: row[index] if index < len(row) else ""
+            for index, header in enumerate(headers)
+        }
+        self.append_dict_row(tab_name, row_dict)
+
+    def append_dict_row(self, tab_name: str, row: dict[str, Any]) -> None:
+        self._ensure_known_tab(tab_name)
+        now = now_local().strftime("%Y-%m-%d %H:%M:%S")
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO sheet_rows (tab_name, row_json, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (tab_name, json.dumps(row, ensure_ascii=False), now, now),
+            )
+
+    def update_cell(self, tab_name: str, row_number: int, column_letter: str, value: Any) -> None:
+        headers = self._headers(tab_name)
+        index = _column_index(column_letter)
+        if index >= len(headers):
+            return
+        self.update_row_by_headers(tab_name, row_number, {headers[index]: value})
+
+    def update_row_by_headers(self, tab_name: str, row_number: int, updates: dict[str, Any]) -> None:
+        db_id = self._db_id_for_sheet_row(tab_name, row_number)
+        if db_id is None:
+            return
+        now = now_local().strftime("%Y-%m-%d %H:%M:%S")
+        with self._connect() as conn:
+            current = conn.execute(
+                "SELECT row_json FROM sheet_rows WHERE id = ?", (db_id,)
+            ).fetchone()
+            if not current:
+                return
+            row = json.loads(current["row_json"])
+            row.update(updates)
+            conn.execute(
+                "UPDATE sheet_rows SET row_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(row, ensure_ascii=False), now, db_id),
+            )
+
+    def delete_rows(self, tab_name: str, row_numbers: list[int]) -> None:
+        ids = [
+            db_id
+            for row_number in row_numbers
+            if (db_id := self._db_id_for_sheet_row(tab_name, row_number)) is not None
+        ]
+        if not ids:
+            return
+        with self._connect() as conn:
+            conn.executemany("DELETE FROM sheet_rows WHERE id = ?", [(db_id,) for db_id in ids])
 
     def get_inventory_items(self) -> list[InventoryItem]:
-        rows = self.read_rows(SHEET_TABS["inventory"])
         items = []
-        for row in rows:
+        for row in self.read_rows(SHEET_TABS["inventory"]):
             if not row.get("商品ID"):
                 continue
             items.append(
@@ -377,13 +346,35 @@ class GoogleSheetsService:
                 return True
         return False
 
+    def _headers(self, tab_name: str) -> list[str]:
+        self._ensure_known_tab(tab_name)
+        return HEADERS[tab_name]
 
-def _column_name(index: int) -> str:
-    name = ""
-    while index:
-        index, remainder = divmod(index - 1, 26)
-        name = chr(65 + remainder) + name
-    return name
+    def _ensure_known_tab(self, tab_name: str) -> None:
+        if tab_name not in HEADERS:
+            raise RuntimeError(f"未知数据表：{tab_name}")
+
+    def _db_id_for_sheet_row(self, tab_name: str, row_number: int) -> int | None:
+        if row_number < 2:
+            return None
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM sheet_rows WHERE tab_name = ? ORDER BY id",
+                (tab_name,),
+            ).fetchall()
+        index = row_number - 2
+        if index >= len(rows):
+            return None
+        return int(rows[index]["id"])
+
+
+def _column_index(column_letter: str) -> int:
+    result = 0
+    for char in column_letter.upper():
+        if not char.isalpha():
+            continue
+        result = result * 26 + (ord(char) - ord("A") + 1)
+    return max(result - 1, 0)
 
 
 def _parse_local_datetime(value: str) -> datetime | None:

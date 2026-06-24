@@ -15,7 +15,7 @@ def google_api_exception_handler(request, exc: HttpError) -> JSONResponse:
             "status": "Google API 配置错误",
             "google_status": status_code,
             "detail": _safe_google_error_message(exc),
-            "next_step": "请检查 Render 环境变量、Google Sheet 分享权限，以及 Google Sheets/Gmail API 是否启用。",
+            "next_step": "当前默认版本不需要 Google。请确认 USE_GOOGLE_SHEETS=false；如果你是手动打开 Google 模式，再检查相关授权。",
         },
     )
 
@@ -26,7 +26,7 @@ def google_auth_exception_handler(request, exc: Exception) -> JSONResponse:
         content={
             "status": "Google OAuth 授权错误",
             "detail": str(exc),
-            "next_step": "请检查 GOOGLE_SERVICE_ACCOUNT_JSON 是否完整，并确认 Google Sheet 已分享给 service account 邮箱。",
+            "next_step": "当前默认版本不需要 Google OAuth。请确认 USE_GOOGLE_SHEETS=false，并重新部署。",
         },
     )
 

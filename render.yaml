@@ -18,95 +18,13 @@ services:
         value: gemini-2.0-flash
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
-      - key: HSA_SHEET_NAME
-        value: HSA 候选记录
-      - key: HSA_KEYWORDS
-        value: hsa,fsa,hydrocortisone,anti-itch,first aid,bandage,medicine,medical,sunscreen,spf,thermometer,covid,allergy,ibuprofen,acetaminophen,pain relief,antacid,contact lens,saline,eczema
-      - key: MAX_ORDER_EMAILS
-        value: 5
-      - key: ORDER_ANALYSIS_USE_OPENAI
+      - key: DATABASE_PATH
+        value: data/home_inventory.sqlite3
+      - key: USE_GOOGLE_SHEETS
         value: false
-      - key: ORDER_ANALYSIS_TIMEOUT_SECONDS
-        value: 600
       - key: ENABLE_GMAIL_ORDER_ANALYSIS
         value: false
       - key: ENABLE_EMAIL_SUMMARY
         value: false
-      - key: DEFAULT_SHIPPING_ADDRESS
-        sync: false
-      - key: ORDER_EMAIL_QUERY
-        value: (subject:"order received" OR subject:"order confirmation" OR subject:"your order" OR subject:ordered) -subject:shipped -subject:delivered -subject:substitution -subject:substitutions -subject:executed -category:promotions newer_than:14d
-      - key: GOOGLE_SHEET_ID
-        sync: false
-      - key: GOOGLE_TOKEN_JSON
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_JSON
-        sync: false
-      - key: GMAIL_SENDER_EMAIL
-        sync: false
-      - key: DAILY_SUMMARY_TO_EMAIL
-        sync: false
-      - key: HSA_SHEET_ID
-        sync: false
       - key: GEMINI_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
-        sync: false
-  - type: cron
-    name: household-order-analysis-nightly
-    runtime: python
-    plan: starter
-    schedule: "0 4 * * *"
-    buildCommand: pip install -r requirements.txt
-    startCommand: python scripts/run_order_analysis.py
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.12.2
-      - key: APP_NAME
-        value: 家庭 AI 补货助手
-      - key: TIMEZONE
-        value: America/Los_Angeles
-      - key: RETAIL_SEARCH_MODE
-        value: search_urls
-      - key: GEMINI_MODEL
-        value: gemini-2.0-flash
-      - key: OPENAI_MODEL
-        value: gpt-4.1-mini
-      - key: HSA_SHEET_NAME
-        value: HSA 候选记录
-      - key: HSA_KEYWORDS
-        value: hsa,fsa,hydrocortisone,anti-itch,first aid,bandage,medicine,medical,sunscreen,spf,thermometer,covid,allergy,ibuprofen,acetaminophen,pain relief,antacid,contact lens,saline,eczema
-      - key: MAX_ORDER_EMAILS
-        value: 5
-      - key: ORDER_ANALYSIS_USE_OPENAI
-        value: false
-      - key: ORDER_ANALYSIS_TIMEOUT_SECONDS
-        value: 600
-      - key: ENABLE_GMAIL_ORDER_ANALYSIS
-        value: false
-      - key: ENABLE_EMAIL_SUMMARY
-        value: false
-      - key: DEFAULT_SHIPPING_ADDRESS
-        sync: false
-      - key: ORDER_EMAIL_QUERY
-        value: (subject:"order received" OR subject:"order confirmation" OR subject:"your order" OR subject:ordered) -subject:shipped -subject:delivered -subject:substitution -subject:substitutions -subject:executed -category:promotions newer_than:14d
-      - key: GOOGLE_SHEET_ID
-        sync: false
-      - key: GOOGLE_TOKEN_JSON
-        sync: false
-      - key: GOOGLE_SERVICE_ACCOUNT_JSON
-        sync: false
-      - key: GOOGLE_OAUTH_CLIENT_JSON
-        sync: false
-      - key: GMAIL_SENDER_EMAIL
-        sync: false
-      - key: DAILY_SUMMARY_TO_EMAIL
-        sync: false
-      - key: HSA_SHEET_ID
-        sync: false
-      - key: GEMINI_API_KEY
-        sync: false
-      - key: OPENAI_API_KEY
         sync: false

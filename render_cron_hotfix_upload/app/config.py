@@ -8,15 +8,12 @@ class Settings(BaseSettings):
     app_name: str = "家庭 AI 补货助手"
     app_base_url: str = "http://localhost:8000"
     timezone: str = "America/Los_Angeles"
-    database_path: str = "data/home_inventory.sqlite3"
-    use_google_sheets: bool = False
 
     google_sheet_id: str = ""
     google_credentials_file: str = "credentials/google_oauth_client.json"
     google_token_file: str = "credentials/google_token.json"
     google_oauth_client_json: str = Field(default="", repr=False)
     google_token_json: str = Field(default="", repr=False)
-    google_service_account_json: str = Field(default="", repr=False)
     hsa_sheet_id: str = ""
     hsa_sheet_name: str = "HSA 候选记录"
     hsa_keywords: str = (
@@ -35,21 +32,14 @@ class Settings(BaseSettings):
     )
     max_order_emails: int = 5
     duplicate_event_window_minutes: int = 10
-    household_locations: str = (
-        "车库,一层,二层餐厅,二层厨房,二层客卧,二层洗手间,"
-        "主卧,主卧洗手间,汤圆房间,汤圆洗手间,三层收纳柜"
-    )
 
     gemini_api_key: str = Field(default="", repr=False)
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-3.5-flash"
     gemini_timeout_seconds: float = 20
 
     openai_api_key: str = Field(default="", repr=False)
     openai_model: str = "gpt-4.1-mini"
     openai_timeout_seconds: float = 20
-
-    enable_gmail_order_analysis: bool = False
-    enable_email_summary: bool = False
 
     retail_search_mode: str = "search_urls"
 

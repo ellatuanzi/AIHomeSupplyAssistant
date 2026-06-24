@@ -22,180 +22,6 @@ from app.utils.ids import new_id
 router = APIRouter()
 
 
-PUBLIC_PAGE_STYLE = """
-    body {
-        margin: 0;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #172033;
-        background: #faf9f5;
-        line-height: 1.6;
-    }
-    main {
-        max-width: 820px;
-        margin: 0 auto;
-        padding: 56px 22px 72px;
-    }
-    h1 {
-        margin: 0 0 16px;
-        font-size: clamp(2rem, 5vw, 3.25rem);
-        line-height: 1.05;
-        letter-spacing: 0;
-    }
-    h2 {
-        margin-top: 32px;
-        font-size: 1.25rem;
-    }
-    p, li {
-        font-size: 1rem;
-        color: #3f4a5f;
-    }
-    a {
-        color: #0f5e7a;
-        font-weight: 700;
-    }
-    .actions {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-top: 28px;
-    }
-    .button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        min-height: 44px;
-        padding: 0 16px;
-        border-radius: 8px;
-        background: #111827;
-        color: #fff;
-        text-decoration: none;
-    }
-    .secondary {
-        background: transparent;
-        color: #111827;
-        border: 1px solid #c9d2df;
-    }
-"""
-
-
-@router.get("/", response_class=HTMLResponse)
-def public_home() -> str:
-    return f"""
-    <!doctype html>
-    <html lang="zh-Hans">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>家庭 AI 补货助手</title>
-        <style>{PUBLIC_PAGE_STYLE}</style>
-      </head>
-      <body>
-        <main>
-          <h1>家庭 AI 补货助手</h1>
-          <p>
-            这是一个私人使用的家庭物品整理工具，用来记录物品位置、
-            家庭待办、低库存提醒和补货记录。系统不会自动购买任何商品；
-            所有下单都需要人工确认。
-          </p>
-          <div class="actions">
-            <a class="button" href="/chat">打开助手</a>
-            <a class="button secondary" href="/privacy">隐私政策</a>
-            <a class="button secondary" href="/terms">服务条款</a>
-          </div>
-        </main>
-      </body>
-    </html>
-    """
-
-
-@router.get("/privacy", response_class=HTMLResponse)
-def privacy_policy() -> str:
-    return f"""
-    <!doctype html>
-    <html lang="zh-Hans">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>隐私政策 - 家庭 AI 补货助手</title>
-        <style>{PUBLIC_PAGE_STYLE}</style>
-      </head>
-      <body>
-        <main>
-          <h1>隐私政策</h1>
-          <p>最后更新：2026-06-10</p>
-          <p>
-            家庭 AI 补货助手是一个私人家庭工具，用于帮助记录补货提醒、
-            待办事项、购物小票和订单摘要。
-          </p>
-          <h2>我们访问的数据</h2>
-          <ul>
-            <li>App 本地数据库：作为家庭库存、低库存事件、购买历史和任务的记录。</li>
-            <li>上传的小票或截图：用于提取商品名称、价格、数量和店铺信息。</li>
-          </ul>
-          <h2>数据如何使用</h2>
-          <p>
-            数据仅用于生成家庭补货建议、价格记录、物品位置和待办摘要。
-            系统不会自动下单或进行任何购买。
-          </p>
-          <h2>数据共享</h2>
-          <p>
-            本工具不会出售个人数据。必要时，用户提供的内容可能会发送给配置的
-            AI 服务，用于生成结构化摘要和建议。
-          </p>
-          <h2>数据控制</h2>
-          <p>
-            App 数据库存放在部署环境中。用户可以在应用页面删除记录，或在 Render
-            中删除数据库文件/服务来清除数据。
-          </p>
-          <h2>联系方式</h2>
-          <p>如有问题，请联系：jessica.wyn@gmail.com</p>
-        </main>
-      </body>
-    </html>
-    """
-
-
-@router.get("/terms", response_class=HTMLResponse)
-def terms_of_service() -> str:
-    return f"""
-    <!doctype html>
-    <html lang="zh-Hans">
-      <head>
-        <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>服务条款 - 家庭 AI 补货助手</title>
-        <style>{PUBLIC_PAGE_STYLE}</style>
-      </head>
-      <body>
-        <main>
-          <h1>服务条款</h1>
-          <p>最后更新：2026-06-10</p>
-          <p>
-            家庭 AI 补货助手用于私人家庭补货、订单整理和待办记录。
-            使用本工具即表示你理解以下限制。
-          </p>
-          <h2>人工确认</h2>
-          <p>
-            本工具只提供记录、整理和建议，不会自动购买商品。任何购物、付款、
-            checkout 或订阅行为都必须由用户人工确认。
-          </p>
-          <h2>建议的限制</h2>
-          <p>
-            价格、健康、适用性和补货建议可能不完整或不准确。用户应自行确认商品、
-            价格、配送地址和家庭适用性。
-          </p>
-          <h2>可用性</h2>
-          <p>
-            该工具依赖 Render 和第三方 AI 服务。服务可能因网络、配额或供应商限制而中断。
-          </p>
-          <h2>联系方式</h2>
-          <p>如有问题，请联系：jessica.wyn@gmail.com</p>
-        </main>
-      </body>
-    </html>
-    """
-
-
 COMMON_ITEM_ALIASES = {
     "toilet_paper": [
         "手纸",
@@ -751,13 +577,13 @@ def _mark_voice_success(result: dict[str, Any], updated: bool = True) -> dict[st
 def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
     command = text.strip()
     if not command:
-        return _voice_failure_result("没有收到语音文字，所以没有更新记录。")
+        return _voice_failure_result("没有收到语音文字，所以没有更新 Google Sheet。")
 
     try:
         sheets = sheets_service()
         inventory = sheets.get_inventory_items()
     except Exception as exc:
-        return _voice_failure_result(f"无法读取记录，所以没有更新：{exc}", command)
+        return _voice_failure_result(f"无法读取 Google Sheet，所以没有更新：{exc}", command)
 
     action = _voice_action(command)
     source_location, target_location = _find_source_target_locations(command)
@@ -805,7 +631,7 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
             return _voice_failure_result(f"无法自动创建未知商品，所以没有更新：{exc}", command, action)
     if not item:
         return _voice_failure_result(
-            f"没有从语音中识别到商品，也无法抽取新商品名，所以没有更新记录。听到的是：{command}",
+            f"没有从语音中识别到商品，也无法抽取新商品名，所以没有更新 Google Sheet。听到的是：{command}",
             command,
             action,
         )
@@ -821,7 +647,7 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
             "location": location,
             "source_location": source_location,
             "target_location": target_location,
-            "message": "这是预览，没有更新记录。",
+            "message": "这是预览，没有更新 Google Sheet。",
             "recognized_text": command,
             "created_unknown_item": created_unknown_item,
         }
@@ -857,7 +683,7 @@ def _handle_voice_command(text: str, dry_run: bool = False) -> dict[str, Any]:
         sheets.ensure_item_location(item.item_id, item.item_name, source_location, "语音")
         sheets.ensure_item_location(item.item_id, item.item_name, target_location or location, "语音")
     except Exception as exc:
-        return _voice_failure_result(f"写入记录失败，所以没有更新：{exc}", command, action)
+        return _voice_failure_result(f"写入 Google Sheet 失败，所以没有更新：{exc}", command, action)
 
     if action == "complete_task":
         try:
@@ -973,52 +799,6 @@ def _recommendation_summary(recommendations: list[dict[str, Any]], limit: int = 
     return "\n".join(lines)
 
 
-def _daily_summary(sheets: GoogleSheetsService) -> dict[str, Any]:
-    tasks = sheets.pending_tasks()
-    events = sheets.unresolved_events()
-    recommendations = sheets.recommendations()
-    pending_recommendations = [
-        row
-        for row in recommendations
-        if row.get("补货状态", "").strip() not in {"已下单", "已购买", "已处理", "跳过"}
-    ]
-    recent_order_insights = list(reversed(sheets.order_insights()))[:6]
-    sections = [
-        "今日摘要",
-        "",
-        f"待办：{len(tasks)} 个",
-        _task_summary(tasks, limit=5),
-        "",
-        f"低库存：{len(events)} 条",
-        _event_summary(events, limit=5),
-        "",
-        f"待确认补货推荐：{len(pending_recommendations)} 条",
-        _recommendation_summary(recommendations, limit=5),
-    ]
-    if recent_order_insights:
-        sections.extend(["", "最近小票/订单记录："])
-        for insight in recent_order_insights:
-            sections.append(
-                " - ".join(
-                    part
-                    for part in [
-                        insight.get("商品名称", "未命名商品"),
-                        insight.get("店铺", ""),
-                        insight.get("价格", ""),
-                    ]
-                    if part
-                )
-            )
-    sections.extend(["", "提醒：系统不会自动购买任何商品。"])
-    return {
-        "text": "\n".join(sections),
-        "pending_tasks_count": len(tasks),
-        "low_stock_count": len(events),
-        "pending_recommendations_count": len(pending_recommendations),
-        "recent_order_insights_count": len(recent_order_insights),
-    }
-
-
 def _inventory_answer(message: str, sheets: GoogleSheetsService) -> str | None:
     item = _match_voice_item(message, sheets.get_inventory_items())
     if not item:
@@ -1086,14 +866,6 @@ def _handle_chat_message(message: str, dry_run: bool = False) -> dict[str, Any]:
 
     try:
         sheets = sheets_service()
-        if any(token in text for token in ["摘要", "总结", "今日"]) or any(
-            token in text.lower() for token in ["summary", "daily"]
-        ) and _is_read_query(text):
-            return {
-                "ok": True,
-                "message": _daily_summary(sheets)["text"],
-                "updated_google_sheet": False,
-            }
         if any(token in text.lower() for token in ["todo", "to do", "task"]) or any(
             token in text for token in ["待办", "任务", "要做"]
         ) and _is_read_query(text):
@@ -1164,7 +936,6 @@ def _chat_state() -> dict[str, Any]:
         "pending_tasks": tasks,
         "unresolved_events": events,
         "pending_recommendations": recommendations,
-        "daily_summary": _daily_summary(sheets),
     }
 
 
@@ -1341,25 +1112,12 @@ def chat_entry() -> HTMLResponse:
                 line-height: 1.45;
                 white-space: pre-wrap;
               }
-              .summary {
-                white-space: pre-wrap;
-                line-height: 1.5;
-                color: #344054;
-                background: #fbfbf8;
-                border: 1px solid #ecece7;
-                border-radius: 8px;
-                padding: 12px;
-              }
             </style>
           </head>
           <body>
             <main>
               <h1>家庭补货 Chat</h1>
-              <p class="subtle">可以查询家里的物品、待办和低库存，也可以直接更新记录。系统不会自动购买。</p>
-              <section class="panel">
-                <h2>今日摘要</h2>
-                <div id="daily-summary" class="summary">加载中...</div>
-              </section>
+              <p class="subtle">可以查询 Google Sheet，也可以直接更新低库存和待办。系统不会自动购买。</p>
               <section class="panel">
                 <h2>待办列表</h2>
                 <div id="tasks">加载中...</div>
@@ -1380,21 +1138,20 @@ def chat_entry() -> HTMLResponse:
                 </form>
               </section>
               <section class="panel">
-                <h2>补货记录</h2>
-                <p class="subtle">补货之后可以可选上传小票、订单截图或购买页面截图，用来记录在哪里买、多少钱、是否划算和备注。一次最多上传 3 张图，每张 3MB 以内，系统会逐张识别并去掉重复商品。</p>
+                <h2>拍照补录</h2>
+                <p class="subtle">邮件没读准或 delivered 订单漏掉时，可以在这里拍小票、订单截图或 delivered 页面截图。一次最多上传 3 张图，每张 3MB 以内，系统会逐张识别并去掉重复商品。</p>
                 <form id="receipt-form" class="upload-form">
                   <label for="receipt-camera">拍照上传</label>
                   <input id="receipt-camera" name="file" type="file" accept="image/*" capture="environment" multiple>
                   <label for="receipt-file">本地上传 / 相册选择</label>
                   <input id="receipt-file" name="file" type="file" accept="image/*,.pdf,.txt" multiple>
-                  <button id="receipt-submit" type="submit">上传并记录</button>
+                  <button id="receipt-submit" type="submit">上传并写入 Google Sheet</button>
                 </form>
                 <div id="receipt-result" class="upload-result"></div>
               </section>
             </main>
             <script>
               const tasksEl = document.getElementById('tasks');
-              const dailySummaryEl = document.getElementById('daily-summary');
               const messagesEl = document.getElementById('messages');
               const form = document.getElementById('chat-form');
               const input = document.getElementById('message');
@@ -1427,19 +1184,13 @@ def chat_entry() -> HTMLResponse:
                 }).join('');
               }
 
-              function renderDailySummary(summary) {
-                dailySummaryEl.textContent = summary && summary.text ? summary.text : '暂无摘要。';
-              }
-
               async function refreshState() {
                 try {
                   const response = await fetch('/chat/state');
                   const data = await response.json();
                   renderTasks(data.pending_tasks || []);
-                  renderDailySummary(data.daily_summary || {});
                 } catch (error) {
                   tasksEl.textContent = `无法读取待办：${error}`;
-                  dailySummaryEl.textContent = `无法读取摘要：${error}`;
                 }
               }
 
@@ -1498,7 +1249,7 @@ def chat_entry() -> HTMLResponse:
                   receiptResult.textContent = `没有成功写入。${error.message || error}`;
                 } finally {
                   receiptSubmit.disabled = false;
-                  receiptSubmit.textContent = '上传并记录';
+                  receiptSubmit.textContent = '上传并写入 Google Sheet';
                 }
               });
               refreshState();
@@ -1579,7 +1330,7 @@ def voice_entry() -> HTMLResponse:
       <body>
         <main>
           <h1>语音入口</h1>
-          <p>把手机听写出来的指令贴在这里，系统会更新家庭记录和待办任务，不会自动购买。</p>
+          <p>把手机听写出来的指令贴在这里，系统会更新 Google Sheet 和待办任务，不会自动购买。</p>
           <form method="get" action="/voice/command">
             <label for="text">语音指令</label>
             <textarea id="text" name="text" placeholder="例如：主卧洗手间手纸低库存。或者：把车库的手纸拿到主卧洗手间。"></textarea>
@@ -1603,7 +1354,7 @@ def voice_command_get(
     safe_status = escape(result.get("status", "已处理"))
     safe_action = escape(result.get("action", ""))
     safe_update_note = (
-        "已更新记录。" if result.get("updated_google_sheet") else "没有更新记录。"
+        "已更新 Google Sheet。" if result.get("updated_google_sheet") else "没有更新 Google Sheet。"
     )
     safe_recognized_text = escape(result.get("recognized_text", text))
     return HTMLResponse(
@@ -1694,32 +1445,6 @@ def nfc_low_stock(
     note: str = Query(default=""),
     location: str = Query(default=""),
 ) -> HTMLResponse:
-    return HTMLResponse(
-        """
-        <!doctype html>
-        <html lang="zh-CN">
-          <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>入口已简化</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 28px; background: #f7f7f4; color: #1f2933; }
-              main { max-width: 520px; margin: 0 auto; padding-top: 36px; }
-              h1 { font-size: 30px; margin: 0 0 12px; }
-              p { color: #52606d; font-size: 17px; line-height: 1.5; }
-              a { display: inline-block; margin-top: 18px; padding: 14px 18px; border-radius: 8px; background: #111827; color: white; font-weight: 700; text-decoration: none; }
-            </style>
-          </head>
-          <body>
-            <main>
-              <h1>这个入口已停用</h1>
-              <p>现在我们先不使用 NFC。请打开 Chat 页面，用文字或手机听写记录低库存、待办和物品位置。</p>
-              <a href="/chat">打开 Chat</a>
-            </main>
-          </body>
-        </html>
-        """
-    )
     sheets = sheets_service()
     item = sheets.find_inventory_item(item_id)
     if not item:
@@ -2040,12 +1765,6 @@ def run_daily_agent_if_due() -> dict[str, object]:
 
 @router.post("/agent/order-analysis")
 def run_order_analysis_agent() -> dict[str, object]:
-    if not get_settings().enable_gmail_order_analysis:
-        return {
-            "status": "跳过",
-            "reason": "Gmail 订单读取已关闭；请使用 /chat 页面的小票/截图上传补录订单。",
-            "order_insights_created": 0,
-        }
     insights = OrderAnalysisAgent().run()
     return {"status": "完成", "order_insights_created": len(insights)}
 
@@ -2059,7 +1778,7 @@ def receipt_upload_entry() -> HTMLResponse:
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>上传补货记录</title>
+            <title>上传小票/订单截图</title>
             <style>
               :root { color-scheme: light; }
               body {
@@ -2133,8 +1852,8 @@ def receipt_upload_entry() -> HTMLResponse:
           </head>
           <body>
             <main>
-              <h1>上传补货记录</h1>
-              <p>补货之后可以可选上传小票、订单截图或购买页面截图，用来记录在哪里买、多少钱、是否划算和备注。一次最多上传 3 张图，每张 3MB 以内，系统会逐张识别并去掉重复商品。</p>
+              <h1>上传小票/订单截图</h1>
+              <p>适合邮件没读准、delivered 订单漏掉、Whole Foods/Target/Costco 小票等情况。一次最多上传 3 张图，每张 3MB 以内，系统会逐张识别并去掉重复商品。</p>
               <section class="panel">
                 <form id="receipt-form">
                   <label for="camera-file">拍照上传</label>

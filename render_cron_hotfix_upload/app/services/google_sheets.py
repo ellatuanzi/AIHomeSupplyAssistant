@@ -9,20 +9,132 @@ from googleapiclient.discovery import build
 from app.config import get_settings
 from app.models.inventory import InventoryItem
 from app.services.google_auth import get_google_credentials
-from app.services.sheet_schema import HEADERS, SHEET_TABS
 from app.utils.dates import now_local
+
+
+SHEET_TABS = {
+    "inventory": "库存清单",
+    "events": "低库存记录",
+    "item_locations": "商品位置",
+    "tasks": "待办任务",
+    "history": "购买历史",
+    "order_insights": "订单分析",
+    "recommendations": "补货推荐",
+    "send_log": "发送记录",
+}
+
+HEADERS = {
+    "库存清单": [
+        "商品ID",
+        "商品名称",
+        "分类",
+        "偏好品牌",
+        "偏好店铺",
+        "存放位置",
+        "常购规格",
+        "补货阈值",
+        "默认紧急度",
+        "备注",
+    ],
+    "低库存记录": [
+        "事件ID",
+        "记录时间",
+        "商品ID",
+        "商品名称",
+        "来源",
+        "紧急度",
+        "备注",
+        "是否已处理",
+        "位置",
+    ],
+    "商品位置": [
+        "位置ID",
+        "商品ID",
+        "商品名称",
+        "位置",
+        "默认补货来源",
+        "当前状态",
+        "备注",
+    ],
+    "待办任务": [
+        "任务ID",
+        "创建时间",
+        "完成时间",
+        "商品ID",
+        "商品名称",
+        "任务类型",
+        "来源位置",
+        "目标位置",
+        "状态",
+        "来源",
+        "备注",
+    ],
+    "购买历史": [
+        "购买ID",
+        "邮件ID",
+        "商品ID",
+        "商品名称",
+        "购买日期",
+        "店铺",
+        "品牌",
+        "商品标题",
+        "规格",
+        "价格",
+        "收货地址",
+        "地址分类",
+        "订单链接",
+        "满意度",
+        "备注",
+    ],
+    "订单分析": [
+        "分析ID",
+        "邮件ID",
+        "分析日期",
+        "商品ID",
+        "商品名称",
+        "店铺",
+        "商品标题",
+        "价格",
+        "收货地址",
+        "地址分类",
+        "价格判断",
+        "补货预测",
+        "健康/适用性提醒",
+        "更好建议",
+        "置信度",
+        "备注",
+    ],
+    "补货推荐": [
+        "推荐ID",
+        "推荐日期",
+        "商品ID",
+        "商品名称",
+        "推荐店铺",
+        "推荐品牌",
+        "推荐商品",
+        "预估价格",
+        "商品链接",
+        "置信度",
+        "紧急度",
+        "推荐理由",
+        "补货状态",
+        "最后更新",
+    ],
+    "发送记录": [
+        "日期",
+        "处理时间",
+        "状态",
+        "是否发送邮件",
+        "补货推荐数",
+        "订单分析数",
+        "备注",
+    ],
+}
 
 
 @dataclass
 class GoogleSheetsService:
     sheet_id: str | None = None
-
-    def __new__(cls, *args: Any, **kwargs: Any):
-        if cls is GoogleSheetsService and not get_settings().use_google_sheets:
-            from app.services.local_database import LocalDatabaseService
-
-            return LocalDatabaseService(*args, **kwargs)
-        return super().__new__(cls)
 
     def __post_init__(self) -> None:
         settings = get_settings()
@@ -175,50 +287,6 @@ class GoogleSheetsService:
     def find_inventory_item(self, item_id: str) -> InventoryItem | None:
         return next((item for item in self.get_inventory_items() if item.item_id == item_id), None)
 
-    def ensure_inventory_item(
-        self,
-        item_id: str,
-        item_name: str,
-        category: str = "未分类",
-        preferred_brand: str = "",
-        preferred_retailer: str = "",
-        household_location: str = "",
-        typical_quantity: str = "",
-        reorder_threshold: str = "",
-        urgency_default: str = "中",
-        notes: str = "",
-    ) -> InventoryItem:
-        existing = self.find_inventory_item(item_id)
-        if existing:
-            return existing
-        self.append_row(
-            SHEET_TABS["inventory"],
-            [
-                item_id,
-                item_name,
-                category,
-                preferred_brand,
-                preferred_retailer,
-                household_location,
-                typical_quantity,
-                reorder_threshold,
-                urgency_default,
-                notes,
-            ],
-        )
-        return InventoryItem(
-            item_id=item_id,
-            item_name=item_name,
-            category=category,
-            preferred_brand=preferred_brand,
-            preferred_retailer=preferred_retailer,
-            household_location=household_location,
-            typical_quantity=typical_quantity,
-            reorder_threshold=reorder_threshold,
-            urgency_default=urgency_default,
-            notes=notes,
-        )
-
     def append_low_stock_event(self, row: list[Any]) -> None:
         self.append_row(SHEET_TABS["events"], row)
 
@@ -254,36 +322,6 @@ class GoogleSheetsService:
         if not item or not item.household_location:
             return []
         return _dedupe_strings(_split_locations(item.household_location))
-
-    def ensure_item_location(
-        self,
-        item_id: str,
-        item_name: str,
-        location: str,
-        source: str = "",
-        note: str = "",
-    ) -> None:
-        if not location.strip():
-            return
-        normalized_location = location.strip().lower()
-        for row in self.read_rows(SHEET_TABS["item_locations"]):
-            if (
-                row.get("商品ID") == item_id
-                and row.get("位置", "").strip().lower() == normalized_location
-            ):
-                return
-        self.append_row(
-            SHEET_TABS["item_locations"],
-            [
-                f"loc_{item_id}_{len(self.item_locations(item_id)) + 1}",
-                item_id,
-                item_name,
-                location.strip(),
-                source,
-                "已记录",
-                note,
-            ],
-        )
 
     def append_task(self, row: list[Any]) -> None:
         self.append_row(SHEET_TABS["tasks"], row)

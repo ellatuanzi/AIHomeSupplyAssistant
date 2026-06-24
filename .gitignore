@@ -1,0 +1,7 @@
+.env
+credentials/google_token.json
+credentials/google_oauth_client.json
+__pycache__/
+.pytest_cache/
+*.pyc
+render_env_values.txt

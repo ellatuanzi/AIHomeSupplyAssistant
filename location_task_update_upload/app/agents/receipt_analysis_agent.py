@@ -559,8 +559,6 @@ class ReceiptAnalysisAgent:
     def _upload_hsa_receipt_if_needed(
         self, filename: str, content_type: str, data: bytes, orders: list[dict[str, Any]]
     ) -> str:
-        if not get_settings().use_google_sheets:
-            return ""
         try:
             tracker = self.hsa_tracker or HsaTrackerService()
             if not tracker.has_hsa_candidate(orders):
@@ -572,8 +570,6 @@ class ReceiptAnalysisAgent:
     def _write_hsa_candidate(
         self, source_id: str, order: dict[str, Any], receipt_link: str, filename: str
     ) -> None:
-        if not get_settings().use_google_sheets:
-            return
         try:
             tracker = self.hsa_tracker or HsaTrackerService()
             tracker.append_if_candidate(

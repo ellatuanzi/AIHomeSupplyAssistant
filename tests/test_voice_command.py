@@ -239,7 +239,7 @@ def test_voice_command_warns_when_sheet_write_fails(monkeypatch):
     assert result["ok"] is False
     assert result["updated_google_sheet"] is False
     assert result["status"] == "未更新"
-    assert "写入 Google Sheet 失败" in result["message"]
+    assert "写入记录失败" in result["message"]
 
 
 def test_voice_command_creates_task(monkeypatch):
